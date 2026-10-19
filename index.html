@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SAT Practice Bank</title>
+<link rel="stylesheet" href="css/app.css?v=42">
+<link rel="stylesheet" href="css/bluebook.css?v=42">
+<script src="js/vendor/pdf.min.js"></script>
+</head>
+<body>
+<div id="shell">
+  <header class="topbar">
+    <a class="brand" href="#bank"><span class="logo">SAT</span> Practice Bank</a>
+    <nav>
+      <a href="#bank">문제은행</a>
+      <a href="#import">PDF 업로드</a>
+      <a href="#wrong">오답노트</a>
+      <a href="#vocab">영단어</a>
+      <a href="#qnotes">질문노트</a>
+      <a href="#history">풀이 기록</a>
+      <a href="#settings">설정</a>
+    </nav>
+    <a id="jobBadge" class="jobbadge" href="#import" hidden></a>
+    <span id="modeBadge" class="mode"></span>
+    <div id="account"></div>
+  </header>
+  <main id="view"></main>
+</div>
+<script src="data/bank.js"></script>
+<script src="js/firebase-config.js?v=42"></script>
+<script src="js/db.js?v=42"></script>
+<script src="js/parser.js?v=42"></script>
+<script src="js/calc.js?v=42"></script>
+<script src="js/vocab.js?v=42"></script>
+<script src="js/exam.js?v=42"></script>
+<script src="js/app.js?v=42"></script>
+<script>
+  // 사이트를 이 기기에 저장해 오프라인에서도 열리게 (http/https에서만)
+  if ('serviceWorker' in navigator && /^https?:/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => {});
+</script>
+</body>
+</html>

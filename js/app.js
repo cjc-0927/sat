@@ -34,6 +34,7 @@ const App = (() => {
     questions.forEach(q => (qmap[q.id] = q));
     questions.sort(sortQ);
     computeStatus();
+    if (typeof WrongNotes !== 'undefined') WrongNotes.reset();
   }
 
   function sortQ(a, b) {
@@ -761,9 +762,11 @@ const App = (() => {
             ${tBadge(it.test)} ${dBadge(it.difficulty)}
             <span class="res-cat">${U.esc(it.skill || it.domain || '미분류')}</span>
             <span class="res-a">내 답 <b>${U.esc(it.response || '—')}</b> · 정답 <b>${U.esc((qmap[it.qid] || {}).answer || it.answer || '?')}</b></span>
-            <span class="muted sm">${U.korDur(it.timeSpent)}${it.marked ? ' · 🚩' : ''}${it.hl ? ' · 🖍️' : ''}</span>
+            <span class="muted sm">${U.korDur(it.timeSpent)}${it.timeSpent > WrongNotes.slowLimit(it.test) ? ' <b class="slow-tag">오래 걸림</b>' : ''}${it.marked ? ' · 🚩' : ''}${it.hl ? ' · 🖍️' : ''}${it.guess ? ' · <b class="guess-tag">찍음</b>' : ''}</span>
             <button class="btn sm ghost" data-flip="${i}">${it.correct ? '오답으로 처리' : '정답으로 처리'}</button>
           </div>
+          ${!it.correct ? `<div class="res-cause" data-q="${U.esc(it.qid)}"><span class="muted sm">왜 틀렸나요?</span>${WrongNotes.CAUSES.map(([k, n]) => `<button class="wn-c mini c-${k}" data-cause="${k}">${n}</button>`).join('')}</div>`
+            : `<div class="res-cause"><button class="btn sm ghost" data-guess="${i}">${it.guess ? '찍음 표시 지우기' : '찍어서 맞힌 거예요'}</button></div>`}
           <div class="res-detail" hidden></div>
         </div>`).join('')}</div>
     </div>`;
@@ -774,6 +777,20 @@ const App = (() => {
       e.stopPropagation();
       const it = a.items[+b.dataset.flip]; it.correct = !it.correct; it.manual = true;
       await Store.put('attempts', a); computeStatus(); attemptView(aid);
+    });
+    // 틀린 이유 바로 고르기
+    V.querySelectorAll('.res-cause[data-q]').forEach(box => {
+      WrongNotes.causeOf(box.dataset.q).then(c => box.querySelectorAll('[data-cause]').forEach(b => b.classList.toggle('on', b.dataset.cause === c)));
+      box.querySelectorAll('[data-cause]').forEach(b => b.onclick = async () => {
+        const on = !b.classList.contains('on');
+        await WrongNotes.setCause(box.dataset.q, on ? b.dataset.cause : '');
+        box.querySelectorAll('[data-cause]').forEach(x => x.classList.toggle('on', on && x === b));
+      });
+    });
+    V.querySelectorAll('[data-guess]').forEach(b => b.onclick = async () => {
+      const it = a.items[+b.dataset.guess]; it.guess = !it.guess || undefined;
+      await Store.put('attempts', a); attemptView(aid);
+      if (it.guess) toast('오답노트에 넣었어요');
     });
     V.querySelectorAll('.res-row').forEach(r => r.onclick = () => {
       const res = r.parentElement, d = res.querySelector('.res-detail');
@@ -920,7 +937,8 @@ const App = (() => {
     attempts = await Store.all('attempts');
     const vocab = await Store.all('vocab').catch(() => []);
     const qnotes = await Store.all('qnotes').catch(() => []);
-    const blob = new Blob([JSON.stringify({ app: 'sat-practice-bank', version: 2, exportedAt: new Date().toISOString(), questions: qs, attempts, vocab, qnotes })], { type: 'application/json' });
+    const wnotes = await Store.all('wnotes').catch(() => []);
+    const blob = new Blob([JSON.stringify({ app: 'sat-practice-bank', version: 3, exportedAt: new Date().toISOString(), questions: qs, attempts, vocab, qnotes, wnotes })], { type: 'application/json' });
     try { await Store.saveFile(`sat-backup-${U.today()}.json`, blob); }
     catch (e) { msg.textContent = e.code === 'declined' ? '저장을 취소했습니다.' : '저장하지 못했습니다: ' + (e.message || e.code); return; }
     msg.textContent = `올린 문제 ${qs.length}개, 풀이 기록 ${attempts.length}개, 영단어 ${vocab.length}개, 질문노트 ${qnotes.length}개를 백업했습니다.`;
@@ -954,6 +972,12 @@ const App = (() => {
         const cur = haveQ[n.id];
         if (cur && (cur.updatedAt || cur.addedAt || 0) >= (n.updatedAt || n.addedAt || 0)) continue;
         delete n._k; await Store.put('qnotes', n); nq++;
+      }
+      const haveW = Object.fromEntries((await Store.all('wnotes').catch(() => [])).map(w => [w.id, w]));
+      for (const w of data.wnotes || []) {
+        const cur = haveW[w.id];
+        if (cur && (cur.updatedAt || 0) >= (w.updatedAt || 0)) continue;
+        delete w._k; await Store.put('wnotes', w);
       }
       await load(); await Vocab.load();
       msg.textContent = `새로 합친 것: 풀이 기록 ${na}개, 영단어 ${nv}개, 질문노트 ${nq}개 (이미 있던 것은 건너뜀)`;
@@ -1139,7 +1163,7 @@ const App = (() => {
     if (h.startsWith('#import')) importView();
     else if (h.startsWith('#history')) historyView();
     else if (h.startsWith('#attempt-')) attemptView(decodeURIComponent(h.slice(9)));
-    else if (h.startsWith('#wrong')) wrongView();
+    else if (h.startsWith('#wrong')) WrongNotes.view(view());
     else if (h.startsWith('#settings')) settingsView();
     else if (h.startsWith('#vocab')) Vocab.view(view());
     else if (h.startsWith('#qnotes')) QNotes.view(view());
@@ -1149,6 +1173,12 @@ const App = (() => {
   async function init() {
     if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('js/vendor/pdf.worker.min.js', location.href).href;
     U.watchImages();
+    WrongNotes.init({
+      getQ: id => qmap[id], attempts: () => attempts, toast,
+      hydrate: qs => hydrateOrToast(qs),
+      practice: skill => { F.test = 'all'; F.skills.clear(); F.skills.add(skill); F.diff.clear(); F.status.clear(); F.status.add('new'); F.q = ''; F.src = 'all'; location.hash = '#bank'; toast(`「${skill}」 중 안 푼 문제만 보여요`); },
+      retryInExam: qids => { sel.clear(); qids.forEach(id => qmap[id] && sel.add(id)); F.test = 'all'; F.skills.clear(); F.diff.clear(); F.status.clear(); F.q = ''; F.src = 'all'; location.hash = '#bank'; toast(`${sel.size}문항을 선택했어요. 시험 시작을 누르세요`); },
+    });
     setupInstall();
     Vocab.init({ modal, closeModal, toast, preview: id => (qmap[id] ? preview(id) : toast('문제를 찾을 수 없어요')), refresh: () => { if ((location.hash || '').startsWith('#vocab')) route(); } });
     await Store.init();

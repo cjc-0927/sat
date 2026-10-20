@@ -143,6 +143,7 @@ const Exam = (() => {
         timeSpent: Math.round(S.spent[qid] || 0), marked: !!S.marked[qid],
         hl: highlightsOf(qid),
         ask: S.ask && S.ask[qid] ? true : undefined,
+        guess: S.guess && S.guess[qid] ? true : undefined,
       });
     }));
     const attempt = {
@@ -360,6 +361,7 @@ const Exam = (() => {
     return `<div class="bb-qhead">
       <div class="bb-qnum">${n}</div>
       <button class="bb-mark ${S.marked[qid] ? 'on' : ''}" data-act="mark">${ICON.bookmark}<span>Mark for Review</span></button>
+      <label class="bb-guess ${S.guess && S.guess[qid] ? 'on' : ''}" title="확실하지 않아서 찍었다면 체크 — 맞아도 오답노트에 들어갑니다"><input type="checkbox" data-act="guess" ${S.guess && S.guess[qid] ? 'checked' : ''}><span>찍음</span></label>
       <label class="bb-ask ${S.ask && S.ask[qid] ? 'on' : ''}" title="체크하면 질문노트에 들어갑니다"><input type="checkbox" data-act="ask" ${S.ask && S.ask[qid] ? 'checked' : ''}><span>선생님께 질문</span></label>
       ${q.type === 'mcq' ? `<button class="bb-abc ${ui.crossOut ? 'on' : ''}" data-act="crossout" title="Cross out answer choices"><span>ABC</span></button>` : ''}
     </div>
@@ -615,6 +617,11 @@ const Exam = (() => {
       }
       case 'crossout': ui.crossOut = !ui.crossOut; render(); break;
       case 'hlc': ui.hlColor = b.dataset.c; render(); break;
+      case 'guess': {
+        S.guess = S.guess || {};
+        if (b.checked) S.guess[qid] = true; else delete S.guess[qid];
+        save(); render(); break;
+      }
       case 'ask': {
         S.ask = S.ask || {}; S.askNote = S.askNote || {};
         const on = b.checked;

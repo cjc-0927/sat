@@ -1,9 +1,9 @@
 /* 오프라인용: 사이트 파일을 이 기기에 저장해 두고, 인터넷이 없으면 저장된 것으로 열기
  * (인터넷이 있으면 항상 최신 파일을 받아서 저장본을 갱신) */
-const CACHE = 'sat-bank-v3';
+const CACHE = 'sat-bank-v4';
 const CORE = [
   './', './index.html', './css/app.css', './css/bluebook.css',
-  './js/firebase-config.js', './js/db.js', './js/parser.js', './js/calc.js', './js/vocab.js', './js/exam.js', './js/app.js',
+  './js/firebase-config.js', './js/db.js', './js/parser.js', './js/calc.js', './js/vocab.js', './js/wrong.js', './js/exam.js', './js/app.js',
   './js/vendor/pdf.min.js', './js/vendor/pdf.worker.min.js', './js/vendor/math.min.js',
   './manifest.webmanifest', './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png', './icons/favicon-32.png',
   './js/vendor/firebase/firebase-app-compat.js', './js/vendor/firebase/firebase-auth-compat.js', './js/vendor/firebase/firebase-firestore-compat.js',

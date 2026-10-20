@@ -258,3 +258,7 @@ mark.hl-red, .hl-mark.c-red { background: rgba(255, 140, 140, .75); box-shadow: 
 .bb-asknote { display: block; width: 100%; box-sizing: border-box; margin: 8px 0 2px; padding: 8px 10px; border: 1.5px solid #f0c77a; background: #fffaf0; border-radius: 8px; font: inherit; font-size: 14px; outline: none; user-select: text; }
 .bb-asknote:focus { border-color: #b26b00; }
 @media (max-width: 820px) { .bb-ask span { display: none; } }
+.bb-guess { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; cursor: pointer; padding: 3px 8px; border-radius: 6px; user-select: none; }
+.bb-guess input { width: 16px; height: 16px; accent-color: #9a6200; margin: 0; cursor: pointer; }
+.bb-guess.on { background: #fff1d6; color: #8a5300; }
+@media (max-width: 820px) { .bb-guess span { font-size: 12px; } }

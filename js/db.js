@@ -4,7 +4,7 @@ const DB = (() => {
   function open() {
     if (dbp) return dbp;
     dbp = new Promise((res, rej) => {
-      const r = indexedDB.open('sat-practice-bank', 4);
+      const r = indexedDB.open('sat-practice-bank', 5);
       r.onupgradeneeded = () => {
         const db = r.result;
         if (!db.objectStoreNames.contains('questions')) db.createObjectStore('questions', { keyPath: 'id' });
@@ -15,6 +15,8 @@ const DB = (() => {
         if (!db.objectStoreNames.contains('vocab')) db.createObjectStore('vocab', { keyPath: 'id' });
         // 질문노트
         if (!db.objectStoreNames.contains('qnotes')) db.createObjectStore('qnotes', { keyPath: 'id' });
+        // 오답노트 (틀린 이유·다시 풀기 기록)
+        if (!db.objectStoreNames.contains('wnotes')) db.createObjectStore('wnotes', { keyPath: 'id' });
       };
       r.onsuccess = () => res(r.result);
       r.onerror = () => rej(r.error);
@@ -422,6 +424,8 @@ const Store = (() => {
     const haveV = new Set((await all('vocab')).map(v => v.id)), haveN = new Set((await all('qnotes')).map(n => n.id));
     for (const v of lv) { if (!haveV.has(v.id)) await put('vocab', v); }
     for (const n of lqn) { if (!haveN.has(n.id)) await put('qnotes', n); }
+    const lw = await DB.all('wnotes').catch(() => []), haveW = new Set((await all('wnotes')).map(w => w.id));
+    for (const w of lw) { if (!haveW.has(w.id)) await put('wnotes', w); }
     return { q, a, v: lv.length, n: lqn.length };
   }
   const localCount = async () => (await DB.all('questions')).length + (await DB.all('attempts')).length

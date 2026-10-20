@@ -220,7 +220,7 @@ const App = (() => {
         <div class="toolbar">
           <input class="search" placeholder="ID 또는 지문 검색" value="${U.esc(F.q)}">
           <span class="muted">${list.length}문항</span>
-          <span class="sel-hint muted sm" title="여러 문제 한 번에 선택">💡 드래그하거나 Shift+클릭하면 여러 개를 한 번에 선택해요</span>
+          <span class="sel-hint muted sm" title="여러 문제 한 번에 선택">💡 여러 개 선택: 줄을 누른 채 위아래로 끌기 · 또는 첫 줄 클릭 후 Shift+클릭</span>
           <div class="spacer"></div>
           <button class="btn" data-act="sel-all">필터 결과 전체 선택</button>
           <span class="rand"><input type="number" min="1" value="${settings().randN || 10}" class="randN"> <button class="btn" data-act="sel-rand">개 랜덤 선택</button></span>
@@ -290,9 +290,9 @@ const App = (() => {
     const rows = () => [...tbody.querySelectorAll('tr[data-id]')];
     const setRow = (tr, on) => { const id = tr.dataset.id; on ? sel.add(id) : sel.delete(id); tr.classList.toggle('sel', on); tr.querySelector('.rowchk').checked = on; };
     // 여러 개 한 번에: 드래그(누른 채로 줄 위를 지나가기) · Shift+클릭(범위)
-    let drag = null, dragged = false;
+    let drag = null, dragged = false, dragEnd = 0;
     tbody.onmousedown = e => {
-      if (e.button !== 0 || e.shiftKey || e.target.closest('[data-view]')) return;
+      if (e.button !== 0 || e.shiftKey || e.target.closest('.viewbtn')) return; // 줄 어디서든(카테고리 글씨 포함) 드래그 시작
       const tr = e.target.closest('tr[data-id]'); if (!tr) return;
       drag = { on: !sel.has(tr.dataset.id), start: tr };
       dragged = false;
@@ -309,16 +309,16 @@ const App = (() => {
         bankLast = i1;
       }
     };
-    const endDrag = () => { if (drag && dragged) updateStartBar(); drag = null; tbody.classList.remove('dragging'); };
+    const endDrag = () => { if (drag && dragged) { updateStartBar(); dragEnd = Date.now(); } dragged = false; drag = null; tbody.classList.remove('dragging'); };
     window.removeEventListener('mouseup', window._bankUp || (() => {}));
     window._bankUp = endDrag;
     window.addEventListener('mouseup', endDrag);
     tbody.onclick = e => {
       const tr = e.target.closest('tr'); if (!tr) return;
       const id = tr.dataset.id;
-      if (dragged) { dragged = false; return; } // 드래그로 이미 처리됨
-      // 글씨(카테고리)나 "보기"를 누르면 문제 정보, 그 외 줄 아무 곳이나 누르면 선택/해제
-      if (e.target.closest('[data-view]')) { preview(id); return; }
+      if (Date.now() - dragEnd < 300) return; // 드래그 직후 생기는 클릭은 무시
+      // Shift+클릭이 아닐 때만: 글씨(카테고리)나 "보기"를 누르면 문제 정보, 그 외 줄 아무 곳이나 누르면 선택/해제
+      if (!e.shiftKey && e.target.closest('[data-view]')) { preview(id); return; }
       const all = rows(), idx = all.indexOf(tr);
       const on = e.target.classList.contains('rowchk') ? e.target.checked : !sel.has(id);
       if (e.shiftKey && bankLast >= 0 && bankLast < all.length) {

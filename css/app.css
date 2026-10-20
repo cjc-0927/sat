@@ -425,3 +425,8 @@ kbd { font: 11px ui-monospace, Menlo, monospace; border: 1px solid currentColor;
   .wn-date { margin-left: 0; }
   .res-cause { padding-left: 14px; }
 }
+
+.qtable tbody { user-select: none; -webkit-user-select: none; }
+.qtable tbody.dragging tr { cursor: ns-resize; }
+.sel-hint { white-space: nowrap; }
+@media (max-width: 900px) { .sel-hint { display: none; } }

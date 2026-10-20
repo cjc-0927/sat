@@ -4,6 +4,7 @@ const App = (() => {
   // 기본 문제(텍스트)로 들어간 PDF들 — 예전에 이 PDF로 올린 이미지 문제는 중복이라 숨김
   const BANK_SOURCES = ['sat reading 모든 문제 답.pdf', '문법 모든 문제 답.pdf', 'hard 모든 문제 답.pdf'];
   const sel = new Set();
+  let bankLast = -1; // Shift+클릭 범위 선택의 시작 줄
   const F = { test: 'all', skills: new Set(), diff: new Set(), status: new Set(), src: 'all', q: '' };
   const srcBadge = q => q.bank
     ? '<span class="badge src-cb" title="College Board SAT Suite Question Bank 문제">CB Question Bank</span>'
@@ -219,6 +220,7 @@ const App = (() => {
         <div class="toolbar">
           <input class="search" placeholder="ID 또는 지문 검색" value="${U.esc(F.q)}">
           <span class="muted">${list.length}문항</span>
+          <span class="sel-hint muted sm" title="여러 문제 한 번에 선택">💡 드래그하거나 Shift+클릭하면 여러 개를 한 번에 선택해요</span>
           <div class="spacer"></div>
           <button class="btn" data-act="sel-all">필터 결과 전체 선택</button>
           <span class="rand"><input type="number" min="1" value="${settings().randN || 10}" class="randN"> <button class="btn" data-act="sel-rand">개 랜덤 선택</button></span>
@@ -284,15 +286,47 @@ const App = (() => {
     });
     const search = v.querySelector('.search');
     search.oninput = () => { F.q = search.value; clearTimeout(search._t); search._t = setTimeout(() => { refreshBank(); const s = view().querySelector('.search'); s.focus(); s.setSelectionRange(s.value.length, s.value.length); }, 250); };
-    v.querySelector('tbody').onclick = e => {
+    const tbody = v.querySelector('tbody');
+    const rows = () => [...tbody.querySelectorAll('tr[data-id]')];
+    const setRow = (tr, on) => { const id = tr.dataset.id; on ? sel.add(id) : sel.delete(id); tr.classList.toggle('sel', on); tr.querySelector('.rowchk').checked = on; };
+    // 여러 개 한 번에: 드래그(누른 채로 줄 위를 지나가기) · Shift+클릭(범위)
+    let drag = null, dragged = false;
+    tbody.onmousedown = e => {
+      if (e.button !== 0 || e.shiftKey || e.target.closest('[data-view]')) return;
+      const tr = e.target.closest('tr[data-id]'); if (!tr) return;
+      drag = { on: !sel.has(tr.dataset.id), start: tr };
+      dragged = false;
+    };
+    tbody.onmouseover = e => {
+      if (!drag) return;
+      const tr = e.target.closest('tr[data-id]'); if (!tr) return;
+      if (!dragged && tr !== drag.start) { dragged = true; tbody.classList.add('dragging'); }
+      if (dragged) {
+        // 마우스를 빨리 움직여도 빠지는 줄이 없게 시작 줄부터 지금 줄까지 전부 칠함
+        const all = rows(), i0 = all.indexOf(drag.start), i1 = all.indexOf(tr);
+        const [a, b] = i0 < i1 ? [i0, i1] : [i1, i0];
+        for (let i = a; i <= b; i++) setRow(all[i], drag.on);
+        bankLast = i1;
+      }
+    };
+    const endDrag = () => { if (drag && dragged) updateStartBar(); drag = null; tbody.classList.remove('dragging'); };
+    window.removeEventListener('mouseup', window._bankUp || (() => {}));
+    window._bankUp = endDrag;
+    window.addEventListener('mouseup', endDrag);
+    tbody.onclick = e => {
       const tr = e.target.closest('tr'); if (!tr) return;
       const id = tr.dataset.id;
+      if (dragged) { dragged = false; return; } // 드래그로 이미 처리됨
       // 글씨(카테고리)나 "보기"를 누르면 문제 정보, 그 외 줄 아무 곳이나 누르면 선택/해제
       if (e.target.closest('[data-view]')) { preview(id); return; }
+      const all = rows(), idx = all.indexOf(tr);
       const on = e.target.classList.contains('rowchk') ? e.target.checked : !sel.has(id);
-      on ? sel.add(id) : sel.delete(id);
-      tr.classList.toggle('sel', on);
-      tr.querySelector('.rowchk').checked = on;
+      if (e.shiftKey && bankLast >= 0 && bankLast < all.length) {
+        const [a, b] = bankLast < idx ? [bankLast, idx] : [idx, bankLast];
+        for (let i = a; i <= b; i++) setRow(all[i], on);
+        getSelection().removeAllRanges();
+      } else setRow(tr, on);
+      bankLast = idx;
       updateStartBar();
     };
     v.onclick = e => {

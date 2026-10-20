@@ -16,6 +16,7 @@ const App = (() => {
   const SKILL_ORDER = [];
   for (const t of ['RW', 'MATH']) for (const d of Object.keys(Parser.DOMAINS[t])) SKILL_ORDER.push(...Parser.DOMAINS[t][d]);
 
+  const guest = () => { try { return sessionStorage.getItem('sat-guest') === '1'; } catch (e) { return false; } };
   const settings = () => { try { return JSON.parse(localStorage.getItem('sat-settings') || '{}'); } catch (e) { return {}; } };
   const setSettings = s => { try { localStorage.setItem('sat-settings', JSON.stringify({ ...settings(), ...s })); } catch (e) {} };
 
@@ -134,7 +135,31 @@ const App = (() => {
     });
   }
 
+  // 로그인 전 시작 화면 (Google 로그인을 쓸 수 있고 아직 로그인 안 했을 때)
+  function landingHTML() {
+    return `<div class="landing">
+      <img class="land-logo" src="icons/icon-192.png" alt="">
+      <h1>SAT Practice Bank</h1>
+      <p class="land-sub">실제 Bluebook 화면 그대로 푸는 나만의 SAT 문제은행</p>
+      <button class="btn gbtn land-login" id="land-login"><svg viewBox="0 0 48 48" width="20" height="20"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg> Google로 시작하기</button>
+      <p class="muted sm">로그인하면 문제·풀이 기록·영단어가 컴퓨터와 휴대폰에서 자동으로 맞춰집니다. 인터넷이 없어도 이어서 풀 수 있어요.</p>
+      <div class="land-feats">
+        <div><b>Bluebook 시험 화면</b><span>실제 SAT 시간, 계산기, 공식표, 문항 이동까지 똑같이</span></div>
+        <div><b>카테고리·난이도별 문제은행</b><span>College Board Question Bank 문제를 골라서 풀기</span></div>
+        <div><b>오답노트 · 질문노트</b><span>틀린 문제와 선생님께 물어볼 문제를 한곳에</span></div>
+        <div><b>형광펜 영단어장</b><span>빨간 형광펜으로 칠한 단어를 플래시카드로</span></div>
+      </div>
+      <button class="link land-guest" id="land-guest">로그인 없이 둘러보기</button>
+    </div>`;
+  }
+
   function bankView() {
+    if (Store.googleReady && !Store.user && !guest()) {
+      view().innerHTML = landingHTML();
+      view().querySelector('#land-login').onclick = async () => { try { await Store.signIn(); } catch (e) { toast('로그인하지 못했습니다: ' + (e.message || e.code)); } };
+      view().querySelector('#land-guest').onclick = () => { try { sessionStorage.setItem('sat-guest', '1'); } catch (e) {} route(); };
+      return;
+    }
     if (!questions.length) {
       view().innerHTML = `<div class="empty">
         <div class="empty-icon">📄</div>
@@ -969,6 +994,29 @@ const App = (() => {
     };
   }
 
+  /* ---------- 앱 설치 (홈 화면 / 크롬 앱) ---------- */
+  let installEvt = null;
+  const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  function setupInstall() {
+    const b = document.getElementById('installBtn');
+    if (!b || isStandalone() || (window.claude && window.claude.use)) return;
+    window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; b.hidden = false; });
+    window.addEventListener('appinstalled', () => { b.hidden = true; toast('앱으로 설치했어요. 바탕화면·홈 화면의 SAT 아이콘으로 여세요'); });
+    if (isIOS()) b.hidden = false; // 아이폰·아이패드는 직접 안내
+    b.onclick = async () => {
+      if (installEvt) { installEvt.prompt(); const r = await installEvt.userChoice.catch(() => null); if (r && r.outcome === 'accepted') b.hidden = true; installEvt = null; return; }
+      modal(`<h2>앱으로 설치하기</h2>
+        <ol class="howto">
+          <li><b>아이폰·아이패드 (Safari):</b> 아래쪽 <b>공유 버튼(□↑)</b> → <b>홈 화면에 추가</b> → <b>추가</b></li>
+          <li><b>안드로이드 (크롬):</b> 오른쪽 위 <b>⋮</b> → <b>앱 설치</b> 또는 <b>홈 화면에 추가</b></li>
+          <li><b>컴퓨터 (크롬):</b> 주소창 오른쪽의 <b>설치 아이콘(⊕)</b> → <b>설치</b></li>
+        </ol>
+        <p class="muted sm">설치하면 주소창 없이 앱처럼 열리고, 인터넷이 없어도 열립니다.</p>
+        <div class="modal-btns"><button class="btn primary" data-close>확인</button></div>`);
+    };
+  }
+
   /* ---------- Google 로그인 ---------- */
   function renderAccount() {
     const box = document.getElementById('account');
@@ -1101,6 +1149,7 @@ const App = (() => {
   async function init() {
     if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('js/vendor/pdf.worker.min.js', location.href).href;
     U.watchImages();
+    setupInstall();
     Vocab.init({ modal, closeModal, toast, preview: id => (qmap[id] ? preview(id) : toast('문제를 찾을 수 없어요')), refresh: () => { if ((location.hash || '').startsWith('#vocab')) route(); } });
     await Store.init();
     const mb = document.getElementById('modeBadge');

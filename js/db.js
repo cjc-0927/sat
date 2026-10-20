@@ -161,6 +161,9 @@ const Store = (() => {
   }
   async function signOut() { if (fb) await fb.auth.signOut(); }
   const ucol = store => fb.fs.collection('users').doc(fbUser.uid).collection(store);
+  // Firestore는 오프라인이면 '서버 저장 완료'를 끝없이 기다림 → 기기에 먼저 저장된 뒤 최대 3초만 기다리고 진행
+  // (연결되면 Firestore가 알아서 서버에 올림)
+  const localFirst = p => { p.catch(e => console.warn('나중에 다시 올립니다', e)); return navigator.onLine === false ? Promise.resolve() : Promise.race([p, new Promise(r => setTimeout(r, 3000))]); };
 
   async function init() {
     // 1) claude.ai 페이지 주인
@@ -353,14 +356,14 @@ const Store = (() => {
       } else if (s) {
         const b64 = await blobToB64(s.blob);
         const n = Math.max(1, Math.ceil(b64.length / CHUNK));
-        for (let i = 0; i < n; i++) await ucol('sprites').doc(`${key}-${i}`).set({ d: b64.slice(i * CHUNK, (i + 1) * CHUNK) });
+        for (let i = 0; i < n; i++) await localFirst(ucol('sprites').doc(`${key}-${i}`).set({ d: b64.slice(i * CHUNK, (i + 1) * CHUNK) }));
         val.spriteChunks = n; val.parts = s.parts;
       }
     }
     const body = store === 'questions' ? meta(val) : JSON.parse(JSON.stringify(val));
     if (store === 'attempts') body.aid = key;
     if (mode === 'cloud') await retry(() => cdb.collection(store).doc(key).set({ ...body, _k: key }));
-    else await ucol(store).doc(key).set(body);
+    else await localFirst(ucol(store).doc(key).set(body));
     return key;
   }
 
@@ -381,9 +384,9 @@ const Store = (() => {
     if (store === 'questions') {
       const d = await ucol('questions').doc(key).get();
       const n = (d.exists && d.data().spriteChunks) || 0;
-      for (let i = 0; i < n; i++) await ucol('sprites').doc(`${key}-${i}`).delete();
+      for (let i = 0; i < n; i++) await localFirst(ucol('sprites').doc(`${key}-${i}`).delete());
     }
-    return ucol(store).doc(key).delete();
+    return localFirst(ucol(store).doc(key).delete());
   }
 
   async function clear(store, onProgress) {
@@ -414,9 +417,15 @@ const Store = (() => {
     let q = 0, a = 0, i = 0;
     for (const x of lq) { onProgress && onProgress(++i, lq.length); if (have.has(x.id)) continue; await put('questions', x); q++; }
     for (const x of la) { if (haveA.has(x.createdAt)) continue; x.aid = String(x.aid); await put('attempts', x); a++; }
-    return { q, a };
+    // 영단어(겹치면 건너뜀)·질문노트도 함께
+    const lv = await DB.all('vocab').catch(() => []), lqn = await DB.all('qnotes').catch(() => []);
+    const haveV = new Set((await all('vocab')).map(v => v.id)), haveN = new Set((await all('qnotes')).map(n => n.id));
+    for (const v of lv) { if (!haveV.has(v.id)) await put('vocab', v); }
+    for (const n of lqn) { if (!haveN.has(n.id)) await put('qnotes', n); }
+    return { q, a, v: lv.length, n: lqn.length };
   }
-  const localCount = async () => (await DB.all('questions')).length + (await DB.all('attempts')).length;
+  const localCount = async () => (await DB.all('questions')).length + (await DB.all('attempts')).length
+    + (await DB.all('vocab').catch(() => [])).length + (await DB.all('qnotes').catch(() => [])).length;
 
   // 오프라인일 때 끝낸 시험 결과 — 연결되면 올림
   const PKEY = 'sat-pending-attempts';

@@ -1,0 +1,17 @@
+{
+  "name": "SAT Practice Bank",
+  "short_name": "SAT 연습",
+  "description": "실제 Bluebook처럼 푸는 나만의 SAT 문제은행 · 오답노트 · 영단어",
+  "lang": "ko",
+  "start_url": "./#bank",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f7fa",
+  "theme_color": "#2a40a8",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3d5bdb"/>
+      <stop offset="1" stop-color="#1f2f86"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#g)"/>
+  <rect x="96" y="318" width="320" height="18" rx="9" fill="#ffffff" opacity=".28"/>
+  <rect x="96" y="356" width="220" height="18" rx="9" fill="#ffffff" opacity=".28"/>
+  <path d="M340 356 l24 24 l52 -60" fill="none" stroke="#7ee0a8" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="256" y="268" text-anchor="middle" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-weight="800" font-size="168" letter-spacing="4" fill="#ffffff">SAT</text>
+</svg>

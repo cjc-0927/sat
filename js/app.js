@@ -745,10 +745,19 @@ const App = (() => {
           </div>
           <div class="att-score"><b>${s.c}/${s.n}</b><span>${s.p}%</span></div>
           <div class="att-v ${v ? 'bad' : ''}">${v ? `이탈 ${v}회` : '이탈 없음'}</div>
+          <div class="att-rv" data-rv="${a.aid}"></div>
           <a class="btn" href="#attempt-${a.aid}">상세</a>
           <button class="btn ghost danger sm" data-del="${a.aid}">삭제</button>
         </div>`;
       }).join('')}</div></div>`;
+    // 시험마다 오답 정리를 얼마나 했는지 (양보다 질)
+    WrongNotes.notesFor([...new Set(list.flatMap(a => a.items.map(i => i.qid)))]).then(notes => list.forEach(a => {
+      const el = view().querySelector(`[data-rv="${CSS.escape(String(a.aid))}"]`); if (!el) return;
+      const t = a.items.filter(it => reviewKind(it, notes[it.qid]));
+      if (!t.length) { el.innerHTML = '<span class="muted sm">복습할 문제 없음</span>'; return; }
+      const d = t.filter(it => stepsDone(reviewSteps(a, notes[it.qid]))).length;
+      el.innerHTML = `<span class="rv-badge ${d === t.length ? 'ok' : d ? 'mid' : ''}">${d === t.length ? '✓ 오답 정리 완료' : `오답 정리 ${d}/${t.length}`}</span>`;
+    }));
     view().querySelectorAll('.att-date').forEach(inp => inp.onchange = async () => {
       const a = attempts.find(x => x.aid == inp.closest('.att').dataset.aid);
       a.date = inp.value; await Store.put('attempts', a); computeStatus(); toast('날짜를 변경했습니다');
@@ -759,15 +768,44 @@ const App = (() => {
     });
   }
 
-  function attemptView(aid) {
+  function practiceSkill(skill) { F.test = 'all'; F.skills.clear(); F.skills.add(skill); F.diff.clear(); F.status.clear(); F.status.add('new'); F.q = ''; F.src = 'all'; location.hash = '#bank'; toast(`「${skill}」 중 안 푼 문제만 보여요`); }
+
+  // 복습 대상: 틀림 · 찍어서 맞힘 · 오래 걸림 · 직접 추가
+  function reviewKind(it, n) { return !it.correct ? 'wrong' : it.guess ? 'guess' : (it.timeSpent || 0) > WrongNotes.slowLimit(it.test) ? 'slow' : n && n.added ? 'added' : null; }
+  const RK = { wrong: ['✗', '틀림', 'no'], guess: ['?', '찍어서 맞힘', 'guess'], slow: ['⏱', '오래 걸림', 'slow'], added: ['✎', '직접 추가', 'added'] };
+  // 한 문제의 복습 단계: ① 원인 ② 해설 없이 다시 풀기 ③ 한 줄 다짐
+  function reviewSteps(a, n) {
+    n = n || {};
+    const tries = (n.retries || []).filter(r => r.at >= (a.createdAt || 0));
+    return { cause: !!n.cause, retry: tries.length > 0 || !!n.mastered, retryOk: tries.length ? tries[tries.length - 1].ok : null, lesson: !!(n.lesson || '').trim() };
+  }
+  const stepsDone = st => st.cause && st.retry && st.lesson;
+
+  async function attemptView(aid) {
     const a = attempts.find(x => x.aid == aid);
     if (!a) { view().innerHTML = '<div class="page"><p>기록을 찾을 수 없습니다.</p></div>'; return; }
+    const notes = await WrongNotes.notesFor(a.items.map(i => i.qid));
+    if (!location.hash.startsWith('#attempt-')) return; // 그 사이 다른 화면으로 이동함
+    if (attemptView.aid !== aid) { attemptView.aid = aid; attemptView.f = null; attemptView.peek = new Set(); }
     const s = scoreOf(a);
-    const onlyWrong = attemptView.onlyWrong;
-    const items = a.items.map((it, i) => ({ it, i })).filter(x => !onlyWrong || !x.it.correct);
+    const all = a.items.map((it, i) => ({ it, i, n: notes[it.qid], kind: reviewKind(it, notes[it.qid]) }));
+    all.forEach(x => (x.st = x.kind && reviewSteps(a, x.n)));
+    const targets = all.filter(x => x.kind);
+    const F2 = attemptView.f = attemptView.f || (targets.length ? 'review' : 'all');
+    const items = F2 === 'review' ? targets : F2 === 'wrong' ? all.filter(x => !x.it.correct) : all;
     const v = (a.violations || []);
-    const causeBtns = WrongNotes.CAUSES.map(([k, n]) => `<button class="wn-c mini c-${k}" data-cause="${k}">${n}</button>`).join('');
     const VT = { 'tab-hidden': '다른 탭/앱 이동', 'window-blur': '창 벗어남', 'fullscreen-exit': '전체화면 종료', reload: '새로고침' };
+    const cnt = k => targets.filter(x => x.st[k]).length;
+    const done = targets.filter(x => stepsDone(x.st)).length;
+    // 이번 시험에서 보이는 패턴
+    const causeCnt = WrongNotes.CAUSES.map(([k, nm]) => [k, nm, targets.filter(x => x.n && x.n.cause === k).length]);
+    const top = [...causeCnt].sort((p, q) => q[2] - p[2])[0];
+    const sk = {}; targets.forEach(x => { const k = x.it.skill || x.it.domain; if (k) sk[k] = (sk[k] || 0) + 1; });
+    const weak = Object.entries(sk).sort((p, q) => q[1] - p[1]).slice(0, 3);
+    const step = (no, label, c, hint) => `<div class="rv-step ${c >= targets.length ? 'done' : ''}"><span class="rv-no">${c >= targets.length ? '✓' : no}</span><div><b>${label}</b> <span class="rv-cnt">${c}/${targets.length}</span><div class="muted sm">${hint}</div></div></div>`;
+    const peekAns = x => x.kind && !x.st.retry && !attemptView.peek?.has(x.i);
+    const causeBtns = x => WrongNotes.CAUSES.map(([k, nm, d]) => `<button class="wn-c mini c-${k} ${x.n && x.n.cause === k ? 'on' : ''}" data-cause="${k}" title="${U.esc(d)}">${nm}</button>`).join('');
+
     view().innerHTML = `<div class="page">
       <a href="#history" class="back">← 풀이 기록</a>
       <div class="att-head">
@@ -784,92 +822,128 @@ const App = (() => {
       }).join('')}
         <div class="mod ${v.filter(x => x.type !== 'reload').length ? 'bad' : ''}">화면 이탈 <b>${v.filter(x => x.type !== 'reload').length}회</b>${v.length ? ` <span class="muted sm">(${v.map(x => VT[x.type] || x.type).join(', ')})</span>` : ''}</div>
       </div>
+
+      ${targets.length ? `<section class="rv-panel">
+        <div class="rv-top">
+          <div><h2>이 시험 오답 정리</h2>
+            <p class="muted sm">틀린 문제를 모으는 게 아니라 <b>내가 왜 틀리는지 버릇을 찾는 것</b>이 목표예요. 틀린 문제 ${targets.filter(x => x.kind === 'wrong').length} · 찍어서 맞힌 문제 ${targets.filter(x => x.kind === 'guess').length} · 오래 걸린 문제 ${targets.filter(x => x.kind === 'slow').length}${targets.some(x => x.kind === 'added') ? ` · 직접 추가 ${targets.filter(x => x.kind === 'added').length}` : ''}</p></div>
+          <div class="rv-prog"><b>${done}</b>/${targets.length}<span>정리 완료</span></div>
+        </div>
+        <div class="rv-bar"><i style="width:${Math.round(done / targets.length * 100)}%"></i></div>
+        <div class="rv-steps">
+          ${step(1, '왜 틀렸는지 이름 붙이기', cnt('cause'), '개념 부족 · 실수 · 시간 부족 · 전략 오류 중 하나')}
+          ${step(2, '해설 보기 전에 다시 풀기', cnt('retry'), '답을 보지 말고 처음부터. 그래도 안 되면 그때 해설')}
+          ${step(3, '다음엔 이렇게 할게요 (한 줄)', cnt('lesson'), '다음 시험에서 바로 쓸 행동으로')}
+        </div>
+        ${done === targets.length ? '<p class="rv-done">🎉 이 시험 복습을 끝까지 했어요. 여러 시험을 대충 보는 것보다 이렇게 하나를 깊게 보는 게 점수에 더 도움이 돼요.</p>' : ''}
+        <div class="rv-pattern">
+          <div><div class="wn-label">이번 시험에서 틀린 이유</div>
+            ${top && top[2] ? `<div class="rv-causes">${causeCnt.filter(c => c[2]).map(([k, nm, c]) => `<span class="wn-cause c-${k}">${nm} ${c}</span>`).join(' ')}</div><p class="sm">가장 많은 원인은 <b>${top[1]}</b>이에요. ${WrongNotes.TIPS[top[0]]}</p>` : '<p class="muted sm">원인을 고르면 여기에 내 버릇이 보여요.</p>'}
+          </div>
+          <div><div class="wn-label">다음 공부 계획 — 약한 유형 메우기</div>
+            ${weak.map(([k, c]) => `<div class="rv-weak"><span>${U.esc(k)} <span class="muted">${c}문제</span></span><button class="btn sm" data-weak="${U.esc(k)}">문제은행에서 풀기</button></div>`).join('') || '<p class="muted sm">—</p>'}
+          </div>
+        </div>
+      </section>` : ''}
+
       <div class="toolbar">
-        <div class="seg"><button class="${!onlyWrong ? 'on' : ''}" data-f="all">전체 ${a.items.length}</button><button class="${onlyWrong ? 'on' : ''}" data-f="wrong">틀린 문제 ${a.items.length - s.c}</button></div>
+        <div class="seg">
+          ${targets.length ? `<button class="${F2 === 'review' ? 'on' : ''}" data-f="review">복습할 문제 ${targets.length}</button>` : ''}
+          <button class="${F2 === 'wrong' ? 'on' : ''}" data-f="wrong">틀린 문제 ${a.items.length - s.c}</button>
+          <button class="${F2 === 'all' ? 'on' : ''}" data-f="all">전체 ${a.items.length}</button>
+        </div>
         <div class="spacer"></div>
-        ${a.items.length - s.c ? '<button class="btn primary" data-act="retry">틀린 문제 다시 풀기</button>' : ''}
+        ${targets.length ? '<a class="btn" href="#wrong">오답노트 전체 보기</a>' : ''}
+        ${a.items.length - s.c ? '<button class="btn primary" data-act="retry">틀린 문제 시험으로 다시 풀기</button>' : ''}
       </div>
-      <div class="res-list">${items.map(({ it, i }) => `
-        <div class="res" data-i="${i}">
+      <div class="res-list">${items.map(x => {
+        const { it, i, n, kind, st } = x;
+        const q = qmap[it.qid] || {};
+        const [kic, kname, kcls] = RK[kind] || [];
+        return `
+        <div class="res ${kind ? 'rv' : ''} ${st && stepsDone(st) ? 'rv-ok' : ''}" data-i="${i}" data-q="${U.esc(it.qid)}">
           <div class="res-row">
             <span class="res-n">${i + 1}</span>
             <span class="rec big ${it.correct ? 'ok' : 'no'}">${it.correct ? '✓' : '✗'}</span>
             ${tBadge(it.test)} ${dBadge(it.difficulty)}
             <span class="res-cat">${U.esc(it.skill || it.domain || '미분류')}</span>
-            <span class="res-a">내 답 <b>${U.esc(it.response || '—')}</b> · 정답 <b>${U.esc((qmap[it.qid] || {}).answer || it.answer || '?')}</b></span>
-            <span class="muted sm">${U.korDur(it.timeSpent)}${it.timeSpent > WrongNotes.slowLimit(it.test) ? ' <b class="slow-tag">오래 걸림</b>' : ''}${it.marked ? ' · 🚩' : ''}${it.hl ? ' · 🖍️' : ''}${it.guess ? ' · <b class="guess-tag">찍음</b>' : ''}</span>
+            ${kind && kind !== 'wrong' ? `<span class="wn-kind-tag ${kcls}">${kic} ${kname}</span>` : ''}
+            <span class="res-a">내 답 <b>${U.esc(it.response || '—')}</b> · 정답 ${peekAns(x) ? `<button class="ans-peek" data-peek="${i}" title="다시 풀기 전에는 정답을 가려 둬요">가림 · 보기</button>` : `<b>${U.esc(q.answer || it.answer || '?')}</b>`}</span>
+            <span class="muted sm">${U.korDur(it.timeSpent)}${it.marked ? ' · 🚩' : ''}${it.hl ? ' · 🖍️' : ''}</span>
             <button class="btn sm ghost" data-flip="${i}">${it.correct ? '오답으로 처리' : '정답으로 처리'}</button>
           </div>
-          <div class="res-cause" data-q="${U.esc(it.qid)}" data-ok="${it.correct ? 1 : ''}">
-            ${!it.correct ? `<span class="muted sm">왜 틀렸나요?</span>${causeBtns}` : `<button class="btn sm ghost" data-guess="${i}">${it.guess ? '찍음 표시 지우기' : '찍어서 맞힌 거예요'}</button>`}
-            <button class="btn sm res-redo" data-redo>↻ 다시 풀기</button>
-            <button class="btn sm ghost res-write" data-write>✎ ${it.correct ? '오답노트에 추가' : '오답노트 쓰기'}</button>
-          </div>
-          <div class="res-note" hidden>
-            ${it.correct ? `<div class="res-note-causes"><span class="muted sm">왜 오답노트에 넣나요?</span>${causeBtns}</div>` : ''}
-            <label class="wn-label">다음엔 이렇게 할게요 (한 줄)</label>
-            <input class="wn-lesson" maxlength="120" placeholder="예: 문제에 'NOT'이 나오면 동그라미 치기">
-            <label class="wn-label">오답 메모</label>
-            <textarea class="wn-memo" rows="3" placeholder="${WrongNotes.MEMO_PH}"></textarea>
-            <div class="res-note-foot"><span class="muted sm res-saved">입력하면 자동으로 저장돼요 · 오답노트 탭에서도 보여요</span>${it.correct ? '<button class="btn sm ghost" data-unadd>오답노트에서 빼기</button>' : ''}</div>
-          </div>
+          ${kind ? `<div class="rv-box">
+            <div class="rv-line"><span class="rv-k ${st.cause ? 'ok' : ''}">① 왜?</span><div class="rv-chips">${causeBtns(x)}</div></div>
+            <div class="rv-line"><span class="rv-k ${st.retry ? 'ok' : ''}">② 다시</span>
+              <button class="btn sm ${st.retry ? 'ghost' : 'primary'}" data-redo>↻ 해설 없이 다시 풀기</button>
+              ${st.retryOk === true ? '<span class="wn-retry ok">다시 풀기 ✓ 맞힘</span>' : st.retryOk === false ? '<span class="wn-retry no">다시 풀기 ✗ — 이제 해설을 보세요</span>' : '<span class="muted sm">답을 보지 말고 처음부터 풀어 보세요</span>'}
+            </div>
+            <div class="rv-line"><span class="rv-k ${st.lesson ? 'ok' : ''}">③ 한 줄</span><input class="wn-lesson" maxlength="120" value="${U.esc((n && n.lesson) || '')}" placeholder="다음엔 이렇게 할게요 · 예: 문제에 'NOT'이 나오면 동그라미 치기"></div>
+            <details class="rv-more" ${n && n.memo ? 'open' : ''}><summary>메모 더 쓰기 (선택)</summary>
+              <textarea class="wn-memo" rows="3" placeholder="${WrongNotes.MEMO_PH}">${U.esc((n && n.memo) || '')}</textarea>
+            </details>
+            <div class="rv-foot"><span class="muted sm res-saved"></span>${kind === 'guess' ? `<button class="btn sm ghost" data-guess="${i}">찍음 표시 지우기</button>` : ''}${kind === 'added' ? '<button class="btn sm ghost" data-unadd>오답노트에서 빼기</button>' : ''}</div>
+          </div>` : `<div class="res-cause"><span class="muted sm">맞혔어도 운이었다면 복습 대상이에요 →</span><button class="btn sm ghost" data-guess="${i}">찍어서 맞힌 거예요</button><button class="btn sm ghost" data-add>✎ 오답노트에 추가</button></div>`}
           <div class="res-detail" hidden></div>
-        </div>`).join('')}</div>
+        </div>`;
+      }).join('')}</div>
     </div>`;
+
     const V = view();
+    const rer = () => attemptView(aid);
     V.querySelector('#adate').onchange = async e => { a.date = e.target.value; await Store.put('attempts', a); computeStatus(); toast('날짜를 변경했습니다'); };
-    V.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { attemptView.onlyWrong = b.dataset.f === 'wrong'; attemptView(aid); });
+    V.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { attemptView.f = b.dataset.f; rer(); });
+    V.querySelectorAll('[data-weak]').forEach(b => b.onclick = () => practiceSkill(b.dataset.weak));
     V.querySelectorAll('[data-flip]').forEach(b => b.onclick = async e => {
       e.stopPropagation();
       const it = a.items[+b.dataset.flip]; it.correct = !it.correct; it.manual = true;
-      await Store.put('attempts', a); computeStatus(); attemptView(aid);
+      await Store.put('attempts', a); computeStatus(); rer();
     });
-    // 풀이 기록에서 바로 오답노트 쓰기 (원인 · 한 줄 다짐 · 메모)
-    V.querySelectorAll('.res-cause[data-q]').forEach(box => {
-      const qid = box.dataset.q, ok = !!box.dataset.ok, res = box.parentElement;
-      const ed = res.querySelector('.res-note'), wb = box.querySelector('[data-write]');
-      const ls = ed.querySelector('.wn-lesson'), mo = ed.querySelector('.wn-memo'), saved = ed.querySelector('.res-saved');
-      const chips = () => res.querySelectorAll('[data-cause]');
-      const openEd = on => { ed.hidden = !on; wb.classList.toggle('on', on); wb.textContent = on ? '✎ 접기' : (ok ? (added ? '✎ 오답노트 보기' : '✎ 오답노트에 추가') : '✎ 오답노트 쓰기'); };
-      let added = false;
+    V.querySelectorAll('[data-peek]').forEach(b => b.onclick = async e => {
+      e.stopPropagation();
+      if (!await U.confirm('정답을 볼까요?', '해설을 보기 전에 먼저 다시 풀어 보는 게 실력으로 남아요.', '그래도 보기')) return;
+      (attemptView.peek = attemptView.peek || new Set()).add(+b.dataset.peek); rer();
+    });
+    V.querySelectorAll('.res').forEach(res => {
+      const qid = res.dataset.q, x = all[+res.dataset.i];
+      const saved = res.querySelector('.res-saved');
       const save = async patch => {
-        if (ok && !added) { patch.added = true; added = true; }
+        if (!x.kind) patch.added = true;
         await WrongNotes.saveNote(qid, patch);
-        saved.textContent = '저장했어요 ✓'; clearTimeout(save.t); save.t = setTimeout(() => (saved.textContent = '입력하면 자동으로 저장돼요 · 오답노트 탭에서도 보여요'), 1500);
+        if (saved) { saved.textContent = '저장했어요 ✓'; clearTimeout(save.t); save.t = setTimeout(() => (saved.textContent = ''), 1500); }
       };
-      WrongNotes.noteOf(qid).then(n => {
-        n = n || {};
-        added = !!n.added;
-        chips().forEach(b => b.classList.toggle('on', b.dataset.cause === n.cause));
-        ls.value = n.lesson || ''; mo.value = n.memo || '';
-        if (n.lesson || n.memo) openEd(true); else openEd(false);
-      });
-      wb.onclick = () => { openEd(ed.hidden); if (!ed.hidden) (ls.value ? mo : ls).focus(); };
-      chips().forEach(b => b.onclick = async () => {
+      res.querySelectorAll('[data-cause]').forEach(b => b.onclick = async () => {
         const on = !b.classList.contains('on');
-        chips().forEach(x => x.classList.toggle('on', on && x.dataset.cause === b.dataset.cause));
-        await save({ cause: on ? b.dataset.cause : '' });
+        await save({ cause: on ? b.dataset.cause : '' }); rer();
       });
-      let t;
-      ls.oninput = () => { clearTimeout(t); t = setTimeout(() => save({ lesson: ls.value }), 500); };
-      mo.oninput = () => { clearTimeout(mo.t); mo.t = setTimeout(() => save({ memo: mo.value }), 500); };
-      // 다시 풀기 → 오답노트 탭으로 이동해서 이 문제를 바로 풀 수 있게 펼침
-      box.querySelector('[data-redo]').onclick = async () => {
-        if (ok && !added) await WrongNotes.saveNote(qid, { added: true });
-        WrongNotes.focus(qid);
-        location.hash = '#wrong';
-      };
-      const un = ed.querySelector('[data-unadd]');
-      if (un) un.onclick = async () => { await WrongNotes.saveNote(qid, { added: false }); added = false; openEd(false); toast('오답노트에서 뺐어요'); };
+      const ls = res.querySelector('.rv-box .wn-lesson'), mo = res.querySelector('.rv-box .wn-memo');
+      if (ls) {
+        ls.oninput = () => { clearTimeout(ls.t); ls.t = setTimeout(() => save({ lesson: ls.value }), 500); };
+        ls.onchange = () => { clearTimeout(ls.t); save({ lesson: ls.value }).then(rer); }; // 칸을 벗어나면 단계 표시 갱신
+      }
+      if (mo) mo.oninput = () => { clearTimeout(mo.t); mo.t = setTimeout(() => save({ memo: mo.value }), 500); };
+      const redo = res.querySelector('[data-redo]');
+      if (redo) redo.onclick = () => { WrongNotes.focus(qid); location.hash = '#wrong'; };
+      const add = res.querySelector('[data-add]');
+      if (add) add.onclick = async () => { await save({}); toast('오답노트에 넣었어요'); rer(); };
+      const un = res.querySelector('[data-unadd]');
+      if (un) un.onclick = async () => { await WrongNotes.saveNote(qid, { added: false }); toast('오답노트에서 뺐어요'); rer(); };
     });
     V.querySelectorAll('[data-guess]').forEach(b => b.onclick = async () => {
       const it = a.items[+b.dataset.guess]; it.guess = !it.guess || undefined;
-      await Store.put('attempts', a); attemptView(aid);
-      if (it.guess) toast('오답노트에 넣었어요');
+      await Store.put('attempts', a); rer();
+      if (it.guess) toast('찍어서 맞힌 문제도 복습 대상이에요');
     });
-    V.querySelectorAll('.res-row').forEach(r => r.onclick = () => {
+    V.querySelectorAll('.res-row').forEach(r => r.onclick = async e => {
+      if (e.target.closest('button')) return;
       const res = r.parentElement, d = res.querySelector('.res-detail');
-      const it = a.items[+res.dataset.i];
+      const x = all[+res.dataset.i], it = x.it;
+      if (d.hidden && peekAns(x)) {
+        const go = await U.confirm('해설이 보이는 문제 화면을 열까요?', '해설 보기 전에 먼저 다시 풀어 보세요. 다시 풀어도 안 풀릴 때 해설을 보면 돼요.', '그래도 보기');
+        if (!go) return;
+        (attemptView.peek = attemptView.peek || new Set()).add(x.i);
+        const pk = res.querySelector('.ans-peek'); if (pk) pk.outerHTML = `<b>${U.esc((qmap[it.qid] || {}).answer || it.answer || '?')}</b>`;
+      }
       if (d.hidden) { d.innerHTML = '<p class="muted">불러오는 중…</p>'; hydrateOrToast([qmap[it.qid]]).then(() => { d.innerHTML = (it.hl ? '<p class="hl-note">🖍️ 풀 때 칠한 형광펜이 함께 보입니다</p>' : '') + qCard(qmap[it.qid], { response: it.response, hl: it.hl }); }); }
       d.hidden = !d.hidden;
     });
@@ -1251,7 +1325,7 @@ const App = (() => {
     WrongNotes.init({
       getQ: id => qmap[id], attempts: () => attempts, toast,
       hydrate: qs => hydrateOrToast(qs),
-      practice: skill => { F.test = 'all'; F.skills.clear(); F.skills.add(skill); F.diff.clear(); F.status.clear(); F.status.add('new'); F.q = ''; F.src = 'all'; location.hash = '#bank'; toast(`「${skill}」 중 안 푼 문제만 보여요`); },
+      practice: practiceSkill,
       retryInExam: qids => { sel.clear(); qids.forEach(id => qmap[id] && sel.add(id)); F.test = 'all'; F.skills.clear(); F.diff.clear(); F.status.clear(); F.q = ''; F.src = 'all'; location.hash = '#bank'; toast(`${sel.size}문항을 선택했어요. 시험 시작을 누르세요`); },
     });
     setupInstall();

@@ -442,3 +442,37 @@ kbd { font: 11px ui-monospace, Menlo, monospace; border: 1px solid currentColor;
 .qtable tbody.dragging tr { cursor: ns-resize; }
 .sel-hint { white-space: nowrap; }
 @media (max-width: 900px) { .sel-hint { display: none; } }
+
+/* 풀이 결과 — 오답 정리 */
+.rv-panel { background: #fff; border: 1px solid var(--line, #e3e6ec); border-radius: 14px; padding: 16px 18px; margin: 14px 0; display: flex; flex-direction: column; gap: 12px; }
+.rv-top { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.rv-top h2 { margin: 0 0 4px; font-size: 18px; }
+.rv-prog { text-align: right; white-space: nowrap; font-size: 15px; color: var(--muted); }
+.rv-prog b { font-size: 28px; color: var(--ink); } .rv-prog span { display: block; font-size: 12px; }
+.rv-bar { height: 8px; background: #eef0f3; border-radius: 6px; overflow: hidden; } .rv-bar i { display: block; height: 100%; background: var(--ok, #1a7f4b); transition: width .3s; }
+.rv-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.rv-step { display: flex; gap: 10px; background: var(--bg); border-radius: 10px; padding: 10px; font-size: 13.5px; }
+.rv-step.done { background: var(--ok-l, #e6f4ec); }
+.rv-no { width: 24px; height: 24px; border-radius: 50%; background: #fff; display: grid; place-items: center; font-weight: 800; font-size: 13px; flex: none; border: 1.5px solid #d6dae2; }
+.rv-step.done .rv-no { background: var(--ok, #1a7f4b); color: #fff; border-color: transparent; }
+.rv-cnt { font-weight: 700; color: var(--muted); margin-left: 4px; }
+.rv-done { background: #fff8e1; border-radius: 10px; padding: 10px 12px; margin: 0; font-size: 14px; }
+.rv-pattern { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; border-top: 1px solid #eef0f3; padding-top: 12px; }
+.rv-pattern p { margin: 6px 0 0; } .rv-causes { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.rv-weak { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 5px 0; font-size: 14px; }
+.res.rv { border-left: 4px solid #f2b84b; } .res.rv.rv-ok { border-left-color: var(--ok, #1a7f4b); }
+.rv-box { margin: 0 14px 12px 50px; background: #fffcf3; border: 1px solid #efe2bd; border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.rv-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rv-line .wn-lesson { flex: 1; min-width: 200px; }
+.rv-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.rv-k { font-size: 12.5px; font-weight: 800; color: #9a6200; min-width: 48px; }
+.rv-k.ok { color: var(--ok, #1a7f4b); } .rv-k.ok::after { content: ' ✓'; }
+.rv-more summary { cursor: pointer; font-size: 12.5px; color: var(--muted); margin-bottom: 6px; } .rv-more .wn-memo { width: 100%; box-sizing: border-box; }
+.rv-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 4px; }
+.rv-foot:empty { display: none; }
+.wn-kind-tag { font-size: 11.5px; font-weight: 700; padding: 2px 8px; border-radius: 10px; }
+.wn-kind-tag.guess { background: #fff1d6; color: #9a6200; } .wn-kind-tag.slow { background: #e6f4f4; color: #1f7a7a; } .wn-kind-tag.added { background: #ede7fb; color: #5b3fb5; }
+.ans-peek { border: 1px dashed #b9bec8; background: #f4f5f7; color: var(--muted); border-radius: 6px; padding: 1px 8px; font: inherit; font-size: 12px; cursor: pointer; }
+.rv-badge { font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 10px; background: var(--no-l, #fdecea); color: var(--no, #c0392b); white-space: nowrap; }
+.rv-badge.mid { background: #fff1d6; color: #9a6200; } .rv-badge.ok { background: var(--ok-l, #e6f4ec); color: var(--ok, #1a7f4b); }
+@media (max-width: 760px) { .rv-steps, .rv-pattern { grid-template-columns: 1fr; } .rv-box { margin-left: 14px; } }

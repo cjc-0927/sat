@@ -21,6 +21,7 @@ const WrongNotes = (() => {
   const CAUSE_NAME = Object.fromEntries(CAUSES.map(c => [c[0], c[1]]));
   const KIND = { wrong: ['✗', '틀림', 'no'], guess: ['?', '찍어서 맞힘', 'guess'], slow: ['⏱', '오래 걸림', 'slow'], added: ['✎', '직접 추가', 'added'] };
   const DAY = 86400000;
+  const TIPS = { concept: '해당 개념을 먼저 정리하고 같은 유형을 몇 문제 더 풀어보세요.', mistake: '문제를 끝까지 읽고, 답을 고르기 전에 조건을 한 번 더 확인하는 습관을 들이세요.', time: '모르는 문제는 표시하고 넘어갔다가 마지막에 돌아오는 연습을 해보세요.', strategy: '해설의 풀이 방식을 따라 같은 유형을 다시 풀어보며 접근법을 익히세요.' };
   const MEMO_PH = '왜 그 답을 골랐는지 · 정답의 근거 · 헷갈린 단어/개념';
   const slowLimit = test => Math.round(U.RATE[test === 'MATH' ? 'MATH' : 'RW'] * 1.5); // 실제 SAT 문항당 시간의 1.5배
   const esc = s => U.esc(s);
@@ -176,7 +177,7 @@ const WrongNotes = (() => {
         <div>
           <h3>내가 틀리는 이유</h3>
           ${tagged.length ? causeCnt.map(([k, n, c]) => `<div class="sbar"><span class="sbar-l">${n}</span><div class="sbar-t"><i class="c-${k}" style="width:${Math.round(c / tagged.length * 100)}%"></i></div><span class="sbar-v">${Math.round(c / tagged.length * 100)}% <span class="muted">(${c})</span></span></div>`).join('')
-            + (top[2] ? `<p class="wn-tip">가장 많은 원인은 <b>${top[1]}</b>이에요. ${({ concept: '해당 개념을 먼저 정리하고 같은 유형을 몇 문제 더 풀어보세요.', mistake: '문제를 끝까지 읽고, 답을 고르기 전에 조건을 한 번 더 확인하는 습관을 들이세요.', time: '모르는 문제는 표시하고 넘어갔다가 마지막에 돌아오는 연습을 해보세요.', strategy: '해설의 풀이 방식을 따라 같은 유형을 다시 풀어보며 접근법을 익히세요.' })[top[0]]}</p>` : '')
+            + (top[2] ? `<p class="wn-tip">가장 많은 원인은 <b>${top[1]}</b>이에요. ${TIPS[top[0]]}</p>` : '')
             : '<p class="muted sm">문제를 펼쳐서 <b>왜 틀렸는지</b>를 골라주면 여기에 내 버릇이 보여요.</p>'}
         </div>
         <div>
@@ -262,7 +263,8 @@ const WrongNotes = (() => {
   async function noteOf(qid) { await loadMeta(); return meta[qid] ? { ...meta[qid] } : null; }
   async function saveNote(qid, patch) { await loadMeta(); Object.assign(m(qid), patch); await saveMeta(qid); }
   function focus(qid) { focusQ = qid; }
+  async function notesFor(qids) { await loadMeta(); const o = {}; qids.forEach(q => { if (meta[q]) o[q] = meta[q]; }); return o; }
   function reset() { meta = null; }
 
-  return { init: c => (ctx = c), view, setCause, causeOf, noteOf, saveNote, focus, reset, CAUSES, slowLimit, MEMO_PH };
+  return { init: c => (ctx = c), view, setCause, causeOf, noteOf, saveNote, focus, notesFor, TIPS, CAUSE_NAME, reset, CAUSES, slowLimit, MEMO_PH };
 })();

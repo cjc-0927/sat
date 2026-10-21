@@ -9,6 +9,7 @@ const WrongNotes = (() => {
   let meta = null;        // qid -> 저장된 기록 { cause, lesson, retries:[{at, ok, resp}], nextAt, mastered }
   const F = { tab: 'today' };
   const open = new Set(); // 펼쳐진 카드
+  let focusQ = null;      // 바로 펼쳐서 보여줄 문제
   const revealed = new Set(); // 이번에 해설을 연 카드
 
   const CAUSES = [
@@ -18,8 +19,9 @@ const WrongNotes = (() => {
     ['strategy', '전략 오류', '푸는 방법·접근을 잘못 골랐어요'],
   ];
   const CAUSE_NAME = Object.fromEntries(CAUSES.map(c => [c[0], c[1]]));
-  const KIND = { wrong: ['✗', '틀림', 'no'], guess: ['?', '찍어서 맞힘', 'guess'], slow: ['⏱', '오래 걸림', 'slow'] };
+  const KIND = { wrong: ['✗', '틀림', 'no'], guess: ['?', '찍어서 맞힘', 'guess'], slow: ['⏱', '오래 걸림', 'slow'], added: ['✎', '직접 추가', 'added'] };
   const DAY = 86400000;
+  const MEMO_PH = '왜 그 답을 골랐는지 · 정답의 근거 · 헷갈린 단어/개념';
   const slowLimit = test => Math.round(U.RATE[test === 'MATH' ? 'MATH' : 'RW'] * 1.5); // 실제 SAT 문항당 시간의 1.5배
   const esc = s => U.esc(s);
 
@@ -44,8 +46,8 @@ const WrongNotes = (() => {
     const out = [];
     for (const [qid, L] of Object.entries(latest)) {
       const it = L.it;
-      const kind = !it.correct ? 'wrong' : it.guess ? 'guess' : (it.timeSpent || 0) > slowLimit(it.test) ? 'slow' : null;
       const mm = meta[qid];
+      const kind = !it.correct ? 'wrong' : it.guess ? 'guess' : (it.timeSpent || 0) > slowLimit(it.test) ? 'slow' : mm && mm.added ? 'added' : null;
       if (!kind && !mm) continue;
       out.push({ qid, kind: kind || 'fixed', it, date: L.date, aid: L.aid, count: count[qid], meta: m(qid) });
     }
@@ -133,12 +135,15 @@ const WrongNotes = (() => {
         <span class="wn-date">${esc(e.date || '')}</span>
       </div>
       ${e.meta.lesson && !isOpen ? `<div class="wn-lesson-view">💡 ${esc(e.meta.lesson)}</div>` : ''}
+      ${e.meta.memo && !isOpen ? `<div class="wn-memo-view">📝 ${esc(e.meta.memo)}</div>` : ''}
       ${isOpen ? `<div class="wn-body">
         <div class="wn-tagbox">
           <div class="wn-label">왜 틀렸나요?</div>
           <div class="wn-causes">${CAUSES.map(([k, n, d]) => `<button class="wn-c c-${k} ${e.meta.cause === k ? 'on' : ''}" data-cause="${k}" title="${d}"><b>${n}</b><span>${d}</span></button>`).join('')}</div>
           <label class="wn-label" for="ls-${esc(e.qid)}">다음엔 이렇게 할게요 (한 줄)</label>
           <input class="wn-lesson" id="ls-${esc(e.qid)}" maxlength="120" value="${esc(e.meta.lesson || '')}" placeholder="예: 문제에 'NOT'이 나오면 동그라미 치기">
+          <label class="wn-label" for="mm-${esc(e.qid)}">오답 메모</label>
+          <textarea class="wn-memo" id="mm-${esc(e.qid)}" rows="3" placeholder="${MEMO_PH}">${esc(e.meta.memo || '')}</textarea>
         </div>
         ${solverHTML(e)}
         <div class="wn-foot">
@@ -188,6 +193,9 @@ const WrongNotes = (() => {
     const act = list.filter(active);
     const dueList = act.filter(due).sort((a, b) => (b.count.wrong - a.count.wrong) || ((a.meta.retries || []).length - (b.meta.retries || []).length) || (a.date || '').localeCompare(b.date || '')).slice(0, 5);
     const grads = list.filter(e => !active(e));
+    // 풀이 기록의 "다시 풀기"로 들어온 경우: 그 문제를 펼친 채로 전체 오답노트 보여주기
+    const fe = focusQ && list.find(e => e.qid === focusQ);
+    if (fe) { F.tab = active(fe) ? 'all' : 'done'; open.clear(); open.add(fe.qid); }
     const tab = F.tab;
     if (tab === 'today') dueList.forEach(e => open.add(e.qid));
     let body = '';
@@ -221,6 +229,11 @@ const WrongNotes = (() => {
     // 펼친 카드의 문제 이미지 준비 후 연결
     const shown = list.filter(e => open.has(e.qid)).map(e => ctx.getQ(e.qid)).filter(Boolean);
     if (shown.some(q => q.kind !== 'html' && !q.stemImg)) { await ctx.hydrate(shown); return rer(); }
+    if (fe) {
+      focusQ = null;
+      const fc = el.querySelector(`.wn[data-qid="${CSS.escape(fe.qid)}"]`);
+      if (fc) { fc.classList.add('flash'); setTimeout(() => fc.scrollIntoView({ block: 'start', behavior: 'smooth' }), 50); setTimeout(() => fc.classList.remove('flash'), 2000); }
+    }
     el.querySelectorAll('.wn').forEach(c => {
       const e = list.find(x => x.qid === c.dataset.qid);
       c.querySelector('.wn-row').onclick = () => { open.has(e.qid) ? open.delete(e.qid) : open.add(e.qid); rer(); };
@@ -233,6 +246,8 @@ const WrongNotes = (() => {
       });
       const ls = c.querySelector('.wn-lesson');
       if (ls) { let t; ls.oninput = () => { m(e.qid).lesson = ls.value; clearTimeout(t); t = setTimeout(() => saveMeta(e.qid), 600); }; }
+      const mo = c.querySelector('.wn-memo');
+      if (mo) { let t; mo.oninput = () => { m(e.qid).memo = mo.value; clearTimeout(t); t = setTimeout(() => saveMeta(e.qid), 600); }; }
       c.querySelector('[data-practice]') && (c.querySelector('[data-practice]').onclick = () => ctx.practice(ctx.getQ(e.qid).skill));
       c.querySelector('[data-master]') && (c.querySelector('[data-master]').onclick = async () => { m(e.qid).mastered = true; await saveMeta(e.qid); ctx.toast('졸업했어요 🎓'); rer(); });
       c.querySelector('[data-unmaster]') && (c.querySelector('[data-unmaster]').onclick = async () => { const mm = m(e.qid); mm.mastered = false; mm.nextAt = 0; mm.retries = []; await saveMeta(e.qid); rer(); });
@@ -243,7 +258,11 @@ const WrongNotes = (() => {
   // 결과 화면에서 원인 바로 고르기
   async function setCause(qid, cause) { await loadMeta(); const mm = m(qid); mm.cause = cause; await saveMeta(qid); }
   async function causeOf(qid) { await loadMeta(); return meta[qid] ? meta[qid].cause : ''; }
+  // 풀이 기록에서 오답노트 직접 쓰기
+  async function noteOf(qid) { await loadMeta(); return meta[qid] ? { ...meta[qid] } : null; }
+  async function saveNote(qid, patch) { await loadMeta(); Object.assign(m(qid), patch); await saveMeta(qid); }
+  function focus(qid) { focusQ = qid; }
   function reset() { meta = null; }
 
-  return { init: c => (ctx = c), view, setCause, causeOf, reset, CAUSES, slowLimit };
+  return { init: c => (ctx = c), view, setCause, causeOf, noteOf, saveNote, focus, reset, CAUSES, slowLimit, MEMO_PH };
 })();

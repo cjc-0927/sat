@@ -399,6 +399,18 @@ kbd { font: 11px ui-monospace, Menlo, monospace; border: 1px solid currentColor;
 .wn-lesson { border: 1px solid #e3d3a8; background: #fffcf3; border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 14px; }
 .wn-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .res-cause { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 0 14px 10px 50px; }
+.wn-memo { border: 1px solid #d6dae2; background: #fff; border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 14px; resize: vertical; min-height: 64px; line-height: 1.5; }
+.wn-memo-view { padding: 0 14px 10px 46px; font-size: 13.5px; color: #444; white-space: pre-wrap; }
+.wn-kind.added { background: #ede7fb; color: #5b3fb5; }
+.res-redo { margin-left: auto; }
+.wn { scroll-margin-top: 80px; }
+.wn.flash { box-shadow: 0 0 0 3px #f2b84b; transition: box-shadow .4s; }
+.res-write.on { background: #eef0f3; }
+.res-note { margin: 0 14px 12px 50px; background: #fffcf3; border: 1px solid #efe2bd; border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+.res-note[hidden] { display: none; }
+.res-note-causes { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
+.res-note-foot { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+@media (max-width: 640px) { .res-note { margin-left: 14px; } }
 .slow-tag { color: #1f7a7a; } .guess-tag { color: #9a6200; }
 .empty.small { padding: 40px 20px; }
 /* 다시 풀기 */

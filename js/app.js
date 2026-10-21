@@ -766,6 +766,7 @@ const App = (() => {
     const onlyWrong = attemptView.onlyWrong;
     const items = a.items.map((it, i) => ({ it, i })).filter(x => !onlyWrong || !x.it.correct);
     const v = (a.violations || []);
+    const causeBtns = WrongNotes.CAUSES.map(([k, n]) => `<button class="wn-c mini c-${k}" data-cause="${k}">${n}</button>`).join('');
     const VT = { 'tab-hidden': '다른 탭/앱 이동', 'window-blur': '창 벗어남', 'fullscreen-exit': '전체화면 종료', reload: '새로고침' };
     view().innerHTML = `<div class="page">
       <a href="#history" class="back">← 풀이 기록</a>
@@ -799,8 +800,19 @@ const App = (() => {
             <span class="muted sm">${U.korDur(it.timeSpent)}${it.timeSpent > WrongNotes.slowLimit(it.test) ? ' <b class="slow-tag">오래 걸림</b>' : ''}${it.marked ? ' · 🚩' : ''}${it.hl ? ' · 🖍️' : ''}${it.guess ? ' · <b class="guess-tag">찍음</b>' : ''}</span>
             <button class="btn sm ghost" data-flip="${i}">${it.correct ? '오답으로 처리' : '정답으로 처리'}</button>
           </div>
-          ${!it.correct ? `<div class="res-cause" data-q="${U.esc(it.qid)}"><span class="muted sm">왜 틀렸나요?</span>${WrongNotes.CAUSES.map(([k, n]) => `<button class="wn-c mini c-${k}" data-cause="${k}">${n}</button>`).join('')}</div>`
-            : `<div class="res-cause"><button class="btn sm ghost" data-guess="${i}">${it.guess ? '찍음 표시 지우기' : '찍어서 맞힌 거예요'}</button></div>`}
+          <div class="res-cause" data-q="${U.esc(it.qid)}" data-ok="${it.correct ? 1 : ''}">
+            ${!it.correct ? `<span class="muted sm">왜 틀렸나요?</span>${causeBtns}` : `<button class="btn sm ghost" data-guess="${i}">${it.guess ? '찍음 표시 지우기' : '찍어서 맞힌 거예요'}</button>`}
+            <button class="btn sm res-redo" data-redo>↻ 다시 풀기</button>
+            <button class="btn sm ghost res-write" data-write>✎ ${it.correct ? '오답노트에 추가' : '오답노트 쓰기'}</button>
+          </div>
+          <div class="res-note" hidden>
+            ${it.correct ? `<div class="res-note-causes"><span class="muted sm">왜 오답노트에 넣나요?</span>${causeBtns}</div>` : ''}
+            <label class="wn-label">다음엔 이렇게 할게요 (한 줄)</label>
+            <input class="wn-lesson" maxlength="120" placeholder="예: 문제에 'NOT'이 나오면 동그라미 치기">
+            <label class="wn-label">오답 메모</label>
+            <textarea class="wn-memo" rows="3" placeholder="${WrongNotes.MEMO_PH}"></textarea>
+            <div class="res-note-foot"><span class="muted sm res-saved">입력하면 자동으로 저장돼요 · 오답노트 탭에서도 보여요</span>${it.correct ? '<button class="btn sm ghost" data-unadd>오답노트에서 빼기</button>' : ''}</div>
+          </div>
           <div class="res-detail" hidden></div>
         </div>`).join('')}</div>
     </div>`;
@@ -812,14 +824,43 @@ const App = (() => {
       const it = a.items[+b.dataset.flip]; it.correct = !it.correct; it.manual = true;
       await Store.put('attempts', a); computeStatus(); attemptView(aid);
     });
-    // 틀린 이유 바로 고르기
+    // 풀이 기록에서 바로 오답노트 쓰기 (원인 · 한 줄 다짐 · 메모)
     V.querySelectorAll('.res-cause[data-q]').forEach(box => {
-      WrongNotes.causeOf(box.dataset.q).then(c => box.querySelectorAll('[data-cause]').forEach(b => b.classList.toggle('on', b.dataset.cause === c)));
-      box.querySelectorAll('[data-cause]').forEach(b => b.onclick = async () => {
-        const on = !b.classList.contains('on');
-        await WrongNotes.setCause(box.dataset.q, on ? b.dataset.cause : '');
-        box.querySelectorAll('[data-cause]').forEach(x => x.classList.toggle('on', on && x === b));
+      const qid = box.dataset.q, ok = !!box.dataset.ok, res = box.parentElement;
+      const ed = res.querySelector('.res-note'), wb = box.querySelector('[data-write]');
+      const ls = ed.querySelector('.wn-lesson'), mo = ed.querySelector('.wn-memo'), saved = ed.querySelector('.res-saved');
+      const chips = () => res.querySelectorAll('[data-cause]');
+      const openEd = on => { ed.hidden = !on; wb.classList.toggle('on', on); wb.textContent = on ? '✎ 접기' : (ok ? (added ? '✎ 오답노트 보기' : '✎ 오답노트에 추가') : '✎ 오답노트 쓰기'); };
+      let added = false;
+      const save = async patch => {
+        if (ok && !added) { patch.added = true; added = true; }
+        await WrongNotes.saveNote(qid, patch);
+        saved.textContent = '저장했어요 ✓'; clearTimeout(save.t); save.t = setTimeout(() => (saved.textContent = '입력하면 자동으로 저장돼요 · 오답노트 탭에서도 보여요'), 1500);
+      };
+      WrongNotes.noteOf(qid).then(n => {
+        n = n || {};
+        added = !!n.added;
+        chips().forEach(b => b.classList.toggle('on', b.dataset.cause === n.cause));
+        ls.value = n.lesson || ''; mo.value = n.memo || '';
+        if (n.lesson || n.memo) openEd(true); else openEd(false);
       });
+      wb.onclick = () => { openEd(ed.hidden); if (!ed.hidden) (ls.value ? mo : ls).focus(); };
+      chips().forEach(b => b.onclick = async () => {
+        const on = !b.classList.contains('on');
+        chips().forEach(x => x.classList.toggle('on', on && x.dataset.cause === b.dataset.cause));
+        await save({ cause: on ? b.dataset.cause : '' });
+      });
+      let t;
+      ls.oninput = () => { clearTimeout(t); t = setTimeout(() => save({ lesson: ls.value }), 500); };
+      mo.oninput = () => { clearTimeout(mo.t); mo.t = setTimeout(() => save({ memo: mo.value }), 500); };
+      // 다시 풀기 → 오답노트 탭으로 이동해서 이 문제를 바로 풀 수 있게 펼침
+      box.querySelector('[data-redo]').onclick = async () => {
+        if (ok && !added) await WrongNotes.saveNote(qid, { added: true });
+        WrongNotes.focus(qid);
+        location.hash = '#wrong';
+      };
+      const un = ed.querySelector('[data-unadd]');
+      if (un) un.onclick = async () => { await WrongNotes.saveNote(qid, { added: false }); added = false; openEd(false); toast('오답노트에서 뺐어요'); };
     });
     V.querySelectorAll('[data-guess]').forEach(b => b.onclick = async () => {
       const it = a.items[+b.dataset.guess]; it.guess = !it.guess || undefined;

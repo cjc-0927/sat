@@ -476,3 +476,9 @@ kbd { font: 11px ui-monospace, Menlo, monospace; border: 1px solid currentColor;
 .rv-badge { font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 10px; background: var(--no-l, #fdecea); color: var(--no, #c0392b); white-space: nowrap; }
 .rv-badge.mid { background: #fff1d6; color: #9a6200; } .rv-badge.ok { background: var(--ok-l, #e6f4ec); color: var(--ok, #1a7f4b); }
 @media (max-width: 760px) { .rv-steps, .rv-pattern { grid-template-columns: 1fr; } .rv-box { margin-left: 14px; } }
+
+.ask-btn.on { background: #e8f0fe; color: #1a4fbf; border-color: #b9cdf5; }
+.res-ask { margin: 0 14px 10px 50px; display: flex; align-items: center; gap: 8px; background: #f2f6ff; border: 1px solid #d3e0fa; border-radius: 10px; padding: 8px 12px; }
+.res-ask .rv-k { color: #1a4fbf; }
+.ask-note { flex: 1; border: 1px solid #c9d7f3; background: #fff; border-radius: 8px; padding: 7px 10px; font: inherit; font-size: 14px; }
+@media (max-width: 760px) { .res-ask { margin-left: 14px; } }

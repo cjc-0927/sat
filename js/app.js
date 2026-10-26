@@ -785,6 +785,7 @@ const App = (() => {
     const a = attempts.find(x => x.aid == aid);
     if (!a) { view().innerHTML = '<div class="page"><p>기록을 찾을 수 없습니다.</p></div>'; return; }
     const notes = await WrongNotes.notesFor(a.items.map(i => i.qid));
+    const qn = {}; for (const i of a.items) { const n = await QNotes.get(i.qid); if (n) qn[i.qid] = n; } // 질문노트
     if (!location.hash.startsWith('#attempt-')) return; // 그 사이 다른 화면으로 이동함
     if (attemptView.aid !== aid) { attemptView.aid = aid; attemptView.f = null; attemptView.peek = new Set(); }
     const s = scoreOf(a);
@@ -870,8 +871,10 @@ const App = (() => {
             ${kind && kind !== 'wrong' ? `<span class="wn-kind-tag ${kcls}">${kic} ${kname}</span>` : ''}
             <span class="res-a">내 답 <b>${U.esc(it.response || '—')}</b> · 정답 ${peekAns(x) ? `<button class="ans-peek" data-peek="${i}" title="다시 풀기 전에는 정답을 가려 둬요">가림 · 보기</button>` : `<b>${U.esc(q.answer || it.answer || '?')}</b>`}</span>
             <span class="muted sm">${U.korDur(it.timeSpent)}${it.marked ? ' · 🚩' : ''}${it.hl ? ' · 🖍️' : ''}</span>
+            <button class="btn sm ghost ask-btn ${qn[it.qid] ? 'on' : ''}" data-ask title="질문노트에 넣기/빼기">❓ ${qn[it.qid] ? '질문노트에 있음' : '질문하기'}</button>
             <button class="btn sm ghost" data-flip="${i}">${it.correct ? '오답으로 처리' : '정답으로 처리'}</button>
           </div>
+          ${qn[it.qid] ? `<div class="res-ask"><span class="rv-k">❓ 질문</span><input class="ask-note" maxlength="300" value="${U.esc(qn[it.qid].note || '')}" placeholder="무엇을 물어볼지 메모 — 질문노트에 저장돼요">${qn[it.qid].resolved ? '<span class="muted sm">해결됨</span>' : ''}</div>` : ''}
           ${kind ? `<div class="rv-box">
             <div class="rv-line"><span class="rv-k ${st.cause ? 'ok' : ''}">① 왜?</span><div class="rv-chips">${causeBtns(x)}</div></div>
             <div class="rv-line"><span class="rv-k ${st.retry ? 'ok' : ''}">② 다시</span>
@@ -922,6 +925,23 @@ const App = (() => {
         ls.onchange = () => { clearTimeout(ls.t); save({ lesson: ls.value }).then(rer); }; // 칸을 벗어나면 단계 표시 갱신
       }
       if (mo) mo.oninput = () => { clearTimeout(mo.t); mo.t = setTimeout(() => save({ memo: mo.value }), 500); };
+      // 질문노트에 넣기/빼기 + 질문 메모
+      res.querySelector('[data-ask]').onclick = async () => {
+        const n = qn[qid];
+        if (n) {
+          if (n.note && !await U.confirm('질문노트에서 뺄까요?', '적어 둔 질문 메모도 함께 지워져요.', '빼기')) return;
+          await Store.del('qnotes', qid); QNotes.uncache(qid); toast('질문노트에서 뺐어요');
+        } else {
+          await onAsk(qid, true, '');
+          const v = await QNotes.get(qid);
+          if (v) { Object.assign(v, { response: x.it.response, correct: x.it.correct, date: a.date, aid: a.aid, hl: x.it.hl }); await Store.put('qnotes', v); }
+          toast('질문노트에 넣었어요');
+        }
+        await rer();
+        if (!n) view().querySelector(`.res[data-i="${x.i}"] .ask-note`)?.focus();
+      };
+      const an = res.querySelector('.ask-note');
+      if (an) an.oninput = () => { const n = qn[qid]; n.note = an.value; n.updatedAt = Date.now(); clearTimeout(an.t); an.t = setTimeout(() => Store.put('qnotes', n), 500); };
       const redo = res.querySelector('[data-redo]');
       if (redo) redo.onclick = () => { WrongNotes.focus(qid); location.hash = '#wrong'; };
       const add = res.querySelector('[data-add]');
@@ -1251,7 +1271,7 @@ const App = (() => {
       const shown = items.filter(n => F2.show === 'all' || (F2.show === 'open' ? !n.resolved : n.resolved));
       const open = items.filter(n => !n.resolved).length;
       el.innerHTML = `<div class="page">
-        <div class="voc-head"><div><h1>질문노트</h1><p class="muted">시험 중 문제 위의 <b>☑ 선생님께 질문</b>을 체크하면 여기에 모입니다. 무엇을 물어볼지 메모해 두세요.</p></div>
+        <div class="voc-head"><div><h1>질문노트</h1><p class="muted">시험 중 문제 위의 <b>☑ 선생님께 질문</b>을 체크하거나, 풀이 기록에서 <b>❓ 질문하기</b>를 누르면 여기에 모입니다. 무엇을 물어볼지 메모해 두세요.</p></div>
           ${shown.length ? '<button class="btn" id="qn-copy">질문 목록 복사</button>' : ''}</div>
         <div class="toolbar"><div class="seg">${[['open', `물어볼 질문 ${open}`], ['done', `해결됨 ${items.length - open}`], ['all', `전체 ${items.length}`]].map(([v, l]) => `<button class="${F2.show === v ? 'on' : ''}" data-qs="${v}">${l}</button>`).join('')}</div>
           <div class="spacer"></div>${shown.filter(n => qmap[n.qid]).length ? '<button class="btn primary" id="qn-retry">이 문제들 다시 풀기</button>' : ''}</div>

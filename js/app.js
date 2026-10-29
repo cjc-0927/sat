@@ -217,7 +217,7 @@ const App = (() => {
       <section class="qlist">
         ${saved ? `<div class="resume-bar"><div><b>⏸ 저장해 둔 시험이 있어요</b><br><span class="muted sm">${U.esc(saved.date)} · ${saved.modules.map(x => `${U.TEST_NAME[x.test]} ${x.qids.length}문항`).join(', ')} · ${Object.keys(saved.responses || {}).length}문항 풀었음</span></div>
           <div class="row"><button class="btn ghost danger sm" data-act="saved-del">버리기</button><button class="btn primary" data-act="saved-go">이어서 풀기</button></div></div>` : ''}
-        <div class="toolbar">
+        <div class="toolbar bank-tools">
           <input class="search" placeholder="ID 또는 지문 검색" value="${U.esc(F.q)}">
           <span class="muted">${list.length}문항</span>
           <span class="sel-hint muted sm" title="여러 문제 한 번에 선택">💡 여러 개 선택: 줄을 누른 채 위아래로 끌기 · 또는 첫 줄 클릭 후 Shift+클릭</span>
@@ -286,6 +286,16 @@ const App = (() => {
     });
     const search = v.querySelector('.search');
     search.oninput = () => { F.q = search.value; clearTimeout(search._t); search._t = setTimeout(() => { refreshBank(); const s = view().querySelector('.search'); s.focus(); s.setSelectionRange(s.value.length, s.value.length); }, 250); };
+    // 검색·선택 줄을 상단바 바로 아래에 고정 (상단바 높이는 화면 폭에 따라 달라짐)
+    const tools = v.querySelector('.bank-tools');
+    const stick = () => {
+      const tb = document.querySelector('.topbar');
+      if (!tools || !tools.isConnected) return;
+      document.documentElement.style.setProperty('--tb', tb.offsetHeight + 'px');
+      tools.classList.toggle('stuck', tools.getBoundingClientRect().top <= tb.offsetHeight + 1);
+    };
+    window.removeEventListener('scroll', window._bankStick || (() => {})); window.removeEventListener('resize', window._bankStick || (() => {}));
+    window._bankStick = stick; window.addEventListener('scroll', stick, { passive: true }); window.addEventListener('resize', stick); stick();
     const tbody = v.querySelector('tbody');
     const rows = () => [...tbody.querySelectorAll('tr[data-id]')];
     const setRow = (tr, on) => { const id = tr.dataset.id; on ? sel.add(id) : sel.delete(id); tr.classList.toggle('sel', on); tr.querySelector('.rowchk').checked = on; };

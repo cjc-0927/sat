@@ -482,3 +482,8 @@ kbd { font: 11px ui-monospace, Menlo, monospace; border: 1px solid currentColor;
 .res-ask .rv-k { color: #1a4fbf; }
 .ask-note { flex: 1; border: 1px solid #c9d7f3; background: #fff; border-radius: 8px; padding: 7px 10px; font: inherit; font-size: 14px; }
 @media (max-width: 760px) { .res-ask { margin-left: 14px; } }
+
+/* 문제은행 검색·선택 줄: 스크롤해도 위에 붙어 있음 */
+.bank-tools { position: sticky; top: var(--tb, 56px); z-index: 15; background: var(--bg); margin: 0 -4px 12px; padding: 10px 4px; border-bottom: 1px solid transparent; }
+.bank-tools.stuck { border-bottom-color: var(--line); box-shadow: 0 6px 10px -8px rgba(0,0,0,.18); }
+.bank-tools.stuck .sel-hint { display: none; }

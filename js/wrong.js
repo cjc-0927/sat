@@ -7,7 +7,7 @@
 const WrongNotes = (() => {
   let ctx = null;         // { getQ, attempts, qCard, hydrate, modal, closeModal, toast, practice, retryInExam }
   let meta = null;        // qid -> 저장된 기록 { cause, lesson, retries:[{at, ok, resp}], nextAt, mastered }
-  const F = { tab: 'today' };
+  const F = { tab: 'type', slow: false, groups: new Set() };
   const open = new Set(); // 펼쳐진 카드
   let focusQ = null;      // 바로 펼쳐서 보여줄 문제
   const revealed = new Set(); // 이번에 해설을 연 카드
@@ -119,7 +119,18 @@ const WrongNotes = (() => {
   }
 
   /* ---------- 화면 ---------- */
-  function card(e) {
+  const DIFF_KO = { Easy: '쉬움', Medium: '보통', Hard: '어려움' };
+  const decoder = document.createElement('textarea');
+  const strip = h => { decoder.innerHTML = (h || '').replace(/<math[\s\S]*?<\/math>/g, ' [수식] ').replace(/<[^>]+>/g, ' '); return decoder.value.replace(/\s+/g, ' ').trim(); };
+  // 어떤 문제인지 알아볼 수 있게: R&W는 지문 첫 부분, Math는 문제 첫 부분
+  function preview(q) {
+    // Math는 수식이 보이도록 문제 HTML을 그대로 (두 줄까지만 보임)
+    if (q.test === 'MATH' && q.kind === 'html' && q.stem) return { html: q.stem.replace(/<\/?(p|div|br|figure|table|tbody|tr|td|img)[^>]*>/gi, ' ') };
+    const t = (q.test !== 'MATH' && strip(q.stim)) || q.stemText || strip(q.stem);
+    if (!t) return q.id ? `문제 ${q.id}` : '문제';
+    return t.length > 170 ? t.slice(0, 170) + '…' : t;
+  }
+  function card(e, withSkill = true) {
     const q = ctx.getQ(e.qid) || {};
     const [ic, kname, kcls] = KIND[e.kind] || ['✓', '다시 맞힘', 'ok'];
     const r = e.meta.retries || [];
@@ -128,27 +139,25 @@ const WrongNotes = (() => {
     return `<div class="wn ${isOpen ? 'open' : ''}" data-qid="${esc(e.qid)}">
       <div class="wn-row">
         <span class="wn-kind ${kcls}" title="${kname}">${ic}</span>
-        ${q.test ? `<span class="badge t-${q.test}">${q.test === 'RW' ? 'R&amp;W' : 'Math'}</span>` : ''}
-        <span class="wn-skill">${esc(q.skill || q.domain || '문제')}</span>
-        <span class="wn-meta">${kname} · 내 답 <b>${esc(e.it.response || '—')}</b> · 정답 <b>${esc(q.answer || e.it.answer || '?')}</b> · ${U.korDur(e.it.timeSpent || 0)}${e.count.wrong > 1 ? ` · <b class="no">${e.count.wrong}번 틀림</b>` : ''}</span>
-        ${e.meta.cause ? `<span class="wn-cause c-${e.meta.cause}">${CAUSE_NAME[e.meta.cause]}</span>` : '<span class="wn-cause none">원인 미분류</span>'}
-        ${lastR ? `<span class="wn-retry ${lastR.ok ? 'ok' : 'no'}">다시 풀기 ${lastR.ok ? '✓' : '✗'}</span>` : ''}
-        <span class="wn-date">${esc(e.date || '')}</span>
+        <div class="wn-main">
+          <div class="wn-prev">${(p => (p.html ? p.html : esc(p)))(preview(q))}</div>
+          <div class="wn-sub">${withSkill ? `<b>${esc(q.skill || q.domain || '')}</b> · ` : ''}${DIFF_KO[q.difficulty] || ''}${q.difficulty ? ' · ' : ''}${kname} · 내 답 <b>${esc(e.it.response || '—')}</b>${r.length || e.meta.mastered ? ` · 정답 <b>${esc(q.answer || e.it.answer || '?')}</b>` : ''} · ${U.korDur(e.it.timeSpent || 0)} · ${esc(e.date || '')}${e.count.wrong > 1 ? ` · <b class="no">${e.count.wrong}번 틀림</b>` : ''}</div>
+        </div>
+        ${e.meta.cause ? `<span class="wn-cause c-${e.meta.cause}">${CAUSE_NAME[e.meta.cause]}</span>` : ''}
+        ${lastR ? `<span class="wn-retry ${lastR.ok ? 'ok' : 'no'}">다시 ${lastR.ok ? '✓' : '✗'}</span>` : ''}
+        <span class="wn-chev">${isOpen ? '▾' : '▸'}</span>
       </div>
       ${e.meta.lesson && !isOpen ? `<div class="wn-lesson-view">💡 ${esc(e.meta.lesson)}</div>` : ''}
       ${e.meta.memo && !isOpen ? `<div class="wn-memo-view">📝 ${esc(e.meta.memo)}</div>` : ''}
       ${isOpen ? `<div class="wn-body">
         <div class="wn-tagbox">
-          <div class="wn-label">왜 틀렸나요?</div>
-          <div class="wn-causes">${CAUSES.map(([k, n, d]) => `<button class="wn-c c-${k} ${e.meta.cause === k ? 'on' : ''}" data-cause="${k}" title="${d}"><b>${n}</b><span>${d}</span></button>`).join('')}</div>
-          <label class="wn-label" for="ls-${esc(e.qid)}">다음엔 이렇게 할게요 (한 줄)</label>
-          <input class="wn-lesson" id="ls-${esc(e.qid)}" maxlength="120" value="${esc(e.meta.lesson || '')}" placeholder="예: 문제에 'NOT'이 나오면 동그라미 치기">
-          <label class="wn-label" for="mm-${esc(e.qid)}">오답 메모</label>
-          <textarea class="wn-memo" id="mm-${esc(e.qid)}" rows="3" placeholder="${MEMO_PH}">${esc(e.meta.memo || '')}</textarea>
+          <div class="rv-line"><span class="rv-k ${e.meta.cause ? 'ok' : ''}">① 왜?</span><div class="rv-chips">${CAUSES.map(([k, n, d]) => `<button class="wn-c mini c-${k} ${e.meta.cause === k ? 'on' : ''}" data-cause="${k}" title="${d}">${n}</button>`).join('')}</div></div>
+          <div class="rv-line"><span class="rv-k ${(e.meta.lesson || '').trim() ? 'ok' : ''}">② 한 줄</span><input class="wn-lesson" maxlength="120" value="${esc(e.meta.lesson || '')}" placeholder="다음엔 이렇게 할게요 · 예: 문제에 'NOT'이 나오면 동그라미 치기"></div>
+          <details class="rv-more" ${e.meta.memo ? 'open' : ''}><summary>메모 더 쓰기 (선택)</summary><textarea class="wn-memo" rows="3" placeholder="${MEMO_PH}">${esc(e.meta.memo || '')}</textarea></details>
         </div>
         ${solverHTML(e)}
         <div class="wn-foot">
-          ${q.skill ? `<button class="btn sm" data-practice>「${esc(q.skill)}」 문제은행에서 더 풀기</button>` : ''}
+          ${q.skill && withSkill ? `<button class="btn sm" data-practice>「${esc(q.skill)}」 문제은행에서 더 풀기</button>` : ''}
           <div class="spacer"></div>
           ${e.meta.mastered ? '<button class="btn sm ghost" data-unmaster>다시 복습 목록으로</button>' : '<button class="btn sm ghost" data-master>다 이해했어요 (졸업)</button>'}
         </div>
@@ -156,35 +165,16 @@ const WrongNotes = (() => {
     </div>`;
   }
 
-  function statsHTML(list) {
-    const act = list.filter(active);
-    if (!act.length) return '';
-    const byKind = k => act.filter(e => e.kind === k).length;
-    const tagged = act.filter(e => e.meta.cause);
-    const causeCnt = CAUSES.map(([k, n]) => [k, n, tagged.filter(e => e.meta.cause === k).length]);
-    const top = [...causeCnt].sort((a, b) => b[2] - a[2])[0];
-    const skills = {};
-    act.forEach(e => { const q = ctx.getQ(e.qid); if (q && q.skill) skills[q.skill] = (skills[q.skill] || 0) + 1; });
-    const weak = Object.entries(skills).sort((a, b) => b[1] - a[1]).slice(0, 3);
-    return `<div class="wn-stats">
-      <div class="wn-kpis">
-        <div><b>${byKind('wrong')}</b><span>틀린 문제</span></div>
-        <div><b>${byKind('guess')}</b><span>찍어서 맞힘</span></div>
-        <div><b>${byKind('slow')}</b><span>오래 걸림</span></div>
-        <div><b>${list.filter(e => e.meta.mastered).length}</b><span>졸업</span></div>
-      </div>
-      <div class="wn-insight">
-        <div>
-          <h3>내가 틀리는 이유</h3>
-          ${tagged.length ? causeCnt.map(([k, n, c]) => `<div class="sbar"><span class="sbar-l">${n}</span><div class="sbar-t"><i class="c-${k}" style="width:${Math.round(c / tagged.length * 100)}%"></i></div><span class="sbar-v">${Math.round(c / tagged.length * 100)}% <span class="muted">(${c})</span></span></div>`).join('')
-            + (top[2] ? `<p class="wn-tip">가장 많은 원인은 <b>${top[1]}</b>이에요. ${TIPS[top[0]]}</p>` : '')
-            : '<p class="muted sm">문제를 펼쳐서 <b>왜 틀렸는지</b>를 골라주면 여기에 내 버릇이 보여요.</p>'}
-        </div>
-        <div>
-          <h3>약한 유형</h3>
-          ${weak.map(([s, c]) => `<div class="wn-weak"><span>${esc(s)} <span class="muted">${c}문제</span></span><button class="btn sm" data-weak="${esc(s)}">더 풀기</button></div>`).join('') || '<p class="muted sm">아직 없어요</p>'}
-        </div>
-      </div>
+  function summaryHTML(list, pool) {
+    if (!pool.length) return '';
+    const tagged = pool.filter(e => e.meta.cause);
+    const causeCnt = CAUSES.map(([k, n]) => [k, n, tagged.filter(e => e.meta.cause === k).length]).filter(c => c[2]).sort((a, b) => b[2] - a[2]);
+    const top = causeCnt[0];
+    return `<div class="wn-sum">
+      <div class="wn-sum-k"><b>${pool.filter(e => e.kind === 'wrong').length}</b> 틀림 <span>·</span> <b>${pool.filter(e => e.kind === 'guess').length}</b> 찍어서 맞힘 <span>·</span> <b>${list.filter(e => e.meta.mastered).length}</b> 졸업</div>
+      <div class="wn-sum-h">${top
+        ? `내 버릇: ${causeCnt.map(([k, n, c]) => `<span class="wn-cause c-${k}">${n} ${Math.round(c / tagged.length * 100)}%</span>`).join(' ')} <span class="muted sm">— ${TIPS[top[0]]}</span>`
+        : '<span class="muted sm">문제를 펼쳐서 <b>왜 틀렸는지</b> 고르면 여기에 내 버릇이 보여요.</span>'}</div>
     </div>`;
   }
 
@@ -192,46 +182,78 @@ const WrongNotes = (() => {
     await loadMeta();
     const list = entries();
     const act = list.filter(active);
-    const dueList = act.filter(due).sort((a, b) => (b.count.wrong - a.count.wrong) || ((a.meta.retries || []).length - (b.meta.retries || []).length) || (a.date || '').localeCompare(b.date || '')).slice(0, 5);
-    const grads = list.filter(e => !active(e));
-    // 풀이 기록의 "다시 풀기"로 들어온 경우: 그 문제를 펼친 채로 전체 오답노트 보여주기
+    const slowN = act.filter(e => e.kind === 'slow').length;
+    // 풀이 기록의 "다시 풀기"로 들어온 경우: 그 문제를 펼친 채로 보여주기
     const fe = focusQ && list.find(e => e.qid === focusQ);
-    if (fe) { F.tab = active(fe) ? 'all' : 'done'; open.clear(); open.add(fe.qid); }
+    // 유형 이름 대소문자 차이(Cross-Text / Cross-text)는 같은 유형으로 묶기
+    const gname = {};
+    const gkey = e => { const q = ctx.getQ(e.qid) || e.it || {}; const nm = (q.skill || q.domain || '기타').trim(); const k = (q.test === 'MATH' ? 'MATH' : 'RW') + '|' + nm.toLowerCase(); gname[k] = gname[k] || nm; return k; };
+    if (fe) { F.tab = active(fe) ? 'type' : 'done'; if (fe.kind === 'slow') F.slow = true; open.clear(); open.add(fe.qid); F.groups.add(gkey(fe)); }
+    if (F.tab === 'all') F.tab = 'type';
+    const pool = act.filter(e => F.slow || e.kind !== 'slow'); // 오래 걸린 문제는 기본으로 숨김
+    const dueList = pool.filter(due).sort((a, b) => (b.count.wrong - a.count.wrong) || ((a.meta.retries || []).length - (b.meta.retries || []).length) || (a.date || '').localeCompare(b.date || '')).slice(0, 5);
+    const grads = list.filter(e => !active(e));
     const tab = F.tab;
     if (tab === 'today') dueList.forEach(e => open.add(e.qid));
     let body = '';
     if (tab === 'today') {
       body = dueList.length
-        ? `<p class="muted wn-today-tip">오늘 다시 풀 ${dueList.length}문제예요. <b>해설을 보기 전에</b> 먼저 풀어보세요. 다시 맞히면 며칠 뒤 한 번 더 나오고, 두 번 연속 맞히면 졸업해요.</p>
-           <div class="wn-list">${dueList.map(card).join('')}</div>`
+        ? `<p class="muted wn-today-tip">오늘 다시 풀 ${dueList.length}문제예요. <b>해설을 보기 전에</b> 먼저 풀어보세요. 두 번 연속 맞히면 졸업해요.</p>
+           <div class="wn-list">${dueList.map(e => card(e)).join('')}</div>`
         : `<div class="empty small"><div class="empty-icon">🎉</div><h2>오늘 복습할 문제를 다 했어요</h2><p class="muted">다시 풀 차례가 된 문제가 생기면 여기에 나타나요.</p></div>`;
-    } else if (tab === 'all') {
-      const groups = [['', '원인 미분류'], ...CAUSES.map(c => [c[0], c[1]])].map(([k, n]) => [k, n, act.filter(e => (e.meta.cause || '') === k)]).filter(g => g[2].length);
-      body = act.length ? groups.map(([k, n, es]) => `<h3 class="wgroup"><span class="wn-cause ${k ? 'c-' + k : 'none'}">${n}</span> <span class="muted">${es.length}</span></h3><div class="wn-list">${es.map(card).join('')}</div>`).join('')
-        : '<p class="muted">오답노트가 비어 있어요. 시험을 풀면 틀린 문제·찍은 문제·오래 걸린 문제가 자동으로 모여요.</p>';
+    } else if (tab === 'type') {
+      const groups = {};
+      pool.forEach(e => (groups[gkey(e)] = groups[gkey(e)] || []).push(e));
+      const sec = t => Object.entries(groups).filter(([k]) => k.startsWith(t + '|')).sort((a, b) => b[1].length - a[1].length);
+      const gHTML = ([k, es]) => {
+        const isOpen = F.groups.has(k), skill = gname[k];
+        const n = kk => es.filter(e => e.kind === kk).length;
+        es.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+        return `<div class="wg ${isOpen ? 'open' : ''}" data-g="${esc(k)}">
+          <button class="wg-head" data-gt="${esc(k)}">
+            <span class="wn-chev">${isOpen ? '▾' : '▸'}</span>
+            <b class="wg-name">${esc(skill)}</b>
+            <span class="wg-kinds">${n('wrong') ? `<span class="no">✗ 틀림 ${n('wrong')}</span>` : ''}${n('guess') ? `<span class="guess">? 찍음 ${n('guess')}</span>` : ''}${n('slow') ? `<span class="slow">⏱ 오래 ${n('slow')}</span>` : ''}${n('added') ? `<span>✎ ${n('added')}</span>` : ''}</span>
+            <span class="wg-cnt">${es.length}문제</span>
+          </button>
+          ${isOpen ? `<div class="wg-body">
+            <div class="wn-list">${es.map(e => card(e, false)).join('')}</div>
+            <div class="wg-actions"><button class="btn sm" data-gexam="${esc(k)}">이 유형 ${es.length}문제 시험으로 다시 풀기</button><button class="btn sm ghost" data-weak="${esc(skill)}">문제은행에서 이 유형 새 문제 풀기</button></div>
+          </div>` : ''}
+        </div>`;
+      };
+      const rw = sec('RW'), ma = sec('MATH');
+      body = pool.length
+        ? `<p class="muted sm wn-today-tip">유형을 누르면 그 유형에서 틀린 문제가 펼쳐져요. 문제를 누르면 원인·한 줄 다짐을 적고 해설 없이 다시 풀 수 있어요.</p>`
+          + (rw.length ? `<h3 class="wsec">Reading &amp; Writing</h3><div class="wg-list">${rw.map(gHTML).join('')}</div>` : '')
+          + (ma.length ? `<h3 class="wsec">Math</h3><div class="wg-list">${ma.map(gHTML).join('')}</div>` : '')
+        : '<p class="muted">오답노트가 비어 있어요. 시험을 풀면 틀린 문제·찍은 문제가 자동으로 모여요.</p>';
     } else {
-      body = grads.length ? `<p class="muted">두 번 연속 다시 맞혔거나 이후 시험에서 맞힌 문제예요.</p><div class="wn-list">${grads.map(card).join('')}</div>` : '<p class="muted">아직 졸업한 문제가 없어요.</p>';
+      body = grads.length ? `<p class="muted">두 번 연속 다시 맞혔거나 이후 시험에서 맞힌 문제예요.</p><div class="wn-list">${grads.map(e => card(e)).join('')}</div>` : '<p class="muted">아직 졸업한 문제가 없어요.</p>';
     }
     el.innerHTML = `<div class="page">
-      <div class="voc-head"><div><h1>오답노트</h1><p class="muted">틀린 문제를 모으는 곳이 아니라, <b>내가 왜 틀리는지 버릇을 찾는 곳</b>이에요.</p></div>
-        ${act.length ? '<button class="btn" id="wn-exam">복습 문제로 시험 보기</button>' : ''}</div>
-      ${statsHTML(list)}
+      <div class="voc-head"><div><h1>오답노트</h1><p class="muted">틀린 문제를 모으는 곳이 아니라, <b>내가 왜 틀리는지 버릇을 찾는 곳</b>이에요.</p></div></div>
+      ${summaryHTML(list, pool)}
       <div class="toolbar"><div class="seg">
+        <button class="${tab === 'type' ? 'on' : ''}" data-tab="type">유형별 ${pool.length}</button>
         <button class="${tab === 'today' ? 'on' : ''}" data-tab="today">오늘의 복습 ${dueList.length}</button>
-        <button class="${tab === 'all' ? 'on' : ''}" data-tab="all">원인별 전체 ${act.length}</button>
         <button class="${tab === 'done' ? 'on' : ''}" data-tab="done">졸업 ${grads.length}</button>
-      </div></div>
+      </div>
+      ${slowN ? `<label class="wn-slowtg"><input type="checkbox" id="wn-slow" ${F.slow ? 'checked' : ''}> 맞혔지만 오래 걸린 문제도 보기 (${slowN})</label>` : ''}
+      </div>
       ${body}
     </div>`;
     const rer = () => view(el);
     el.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { F.tab = b.dataset.tab; open.clear(); rer(); });
-    el.querySelector('#wn-exam') && (el.querySelector('#wn-exam').onclick = () => ctx.retryInExam((tab === 'today' ? dueList : act).map(e => e.qid)));
+    el.querySelector('#wn-slow') && (el.querySelector('#wn-slow').onchange = e => { F.slow = e.target.checked; rer(); });
+    el.querySelectorAll('[data-gt]').forEach(b => b.onclick = () => { const k = b.dataset.gt; F.groups.has(k) ? F.groups.delete(k) : F.groups.add(k); rer(); });
+    el.querySelectorAll('[data-gexam]').forEach(b => b.onclick = () => ctx.retryInExam(pool.filter(e => gkey(e) === b.dataset.gexam).map(e => e.qid)));
     el.querySelectorAll('[data-weak]').forEach(b => b.onclick = () => ctx.practice(b.dataset.weak));
     // 펼친 카드의 문제 이미지 준비 후 연결
     const shown = list.filter(e => open.has(e.qid)).map(e => ctx.getQ(e.qid)).filter(Boolean);
     if (shown.some(q => q.kind !== 'html' && !q.stemImg)) { await ctx.hydrate(shown); return rer(); }
     if (fe) {
-      focusQ = null;
+      focusQ = null; // 펼친 문제로 스크롤
       const fc = el.querySelector(`.wn[data-qid="${CSS.escape(fe.qid)}"]`);
       if (fc) { fc.classList.add('flash'); setTimeout(() => fc.scrollIntoView({ block: 'start', behavior: 'smooth' }), 50); setTimeout(() => fc.classList.remove('flash'), 2000); }
     }

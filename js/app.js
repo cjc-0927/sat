@@ -217,24 +217,32 @@ const App = (() => {
       <section class="qlist">
         ${saved ? `<div class="resume-bar"><div><b>⏸ 저장해 둔 시험이 있어요</b><br><span class="muted sm">${U.esc(saved.date)} · ${saved.modules.map(x => `${U.TEST_NAME[x.test]} ${x.qids.length}문항`).join(', ')} · ${Object.keys(saved.responses || {}).length}문항 풀었음</span></div>
           <div class="row"><button class="btn ghost danger sm" data-act="saved-del">버리기</button><button class="btn primary" data-act="saved-go">이어서 풀기</button></div></div>` : ''}
-        <div class="mock-bar">
-          <div><b>📝 모의고사 만들기</b><span class="muted sm">문제은행에서 실제 SAT 영역 비율대로 자동 출제 · 끝나면 예상 점수</span></div>
-          <div class="row"><button class="btn primary" data-mock="full">전체 SAT <small>98문항</small></button><button class="btn" data-mock="RW">영어만 <small>54문항</small></button><button class="btn" data-mock="MATH">수학만 <small>44문항</small></button></div>
-        </div>
         <div class="toolbar bank-tools">
           <input class="search" placeholder="ID 또는 지문 검색" value="${U.esc(F.q)}">
           <span class="muted">${list.length}문항</span>
-          <button class="btn ghost sm" data-act="g-all">${allOpen(list) ? '모두 접기' : '모두 펼치기'}</button>
-          <span class="sel-hint muted sm" title="여러 문제 한 번에 선택">💡 묶음을 눌러 펼치고, 줄을 눌러 고르세요 (누른 채 끌면 여러 개)</span>
+          <span class="sel-hint muted sm" title="여러 문제 한 번에 선택">💡 여러 개 선택: 줄을 누른 채 위아래로 끌기 · 또는 첫 줄 클릭 후 Shift+클릭</span>
           <div class="spacer"></div>
           <button class="btn" data-act="sel-all">필터 결과 전체 선택</button>
           <span class="rand"><input type="number" min="1" value="${settings().randN || 10}" class="randN"> <button class="btn" data-act="sel-rand">개 랜덤 선택</button></span>
           <button class="btn ghost" data-act="sel-none">선택 해제</button>
+          <button class="btn" data-act="mock" title="실제 SAT 비율대로 자동 출제">📝 모의고사</button>
         </div>
         ${questions.some(q => q.bank) ? `<p class="src-note">기본 문제 ${questions.filter(q => q.bank).length.toLocaleString()}개는 <b>College Board SAT Suite Question Bank</b> 문제입니다 (Reading &amp; Writing 전체 · Math Hard). 문제·정답·해설의 저작권은 College Board에 있습니다.</p>` : ''}
-        <div class="table-wrap"><table class="qtable grouped">
-          <thead><tr><th><input type="checkbox" data-act="toggle-page" title="보이는 문제 전체 선택" ${list.length && list.every(x => sel.has(x.id)) ? 'checked' : ''}></th><th>문제</th><th>난이도</th><th>기록</th><th></th></tr></thead>
-          <tbody>${groupRows(list)}</tbody></table>
+        <div class="table-wrap"><table class="qtable">
+          <thead><tr><th><input type="checkbox" data-act="toggle-page" ${list.length && list.every(x => sel.has(x.id)) ? 'checked' : ''}></th><th>섹션</th><th>카테고리</th><th>난이도</th><th>유형</th><th>기록</th><th>ID</th><th></th></tr></thead>
+          <tbody>${list.map(x => {
+            const s = status[x.id];
+            const rec = s ? `<span class="rec ${s.last ? 'ok' : 'no'}">${s.last ? '✓' : '✗'}</span> <span class="muted sm">${s.right}/${s.n} · ${U.esc(s.lastDate || '')}</span>` : '<span class="muted sm">—</span>';
+            return `<tr class="${sel.has(x.id) ? 'sel' : ''}" data-id="${U.esc(x.id)}">
+              <td><input type="checkbox" class="rowchk" ${sel.has(x.id) ? 'checked' : ''}></td>
+              <td>${tBadge(x.test)}</td>
+              <td><button class="cat-link" data-view="1" title="문제 보기"><span class="cat-d">${U.esc(x.domain || '미분류')}</span><span class="cat-s">${U.esc(x.skill || '')}</span></button><div class="cat-src">${srcBadge(x)}</div></td>
+              <td>${dBadge(x.difficulty)}</td>
+              <td class="sm">${x.type === 'mcq' ? '객관식' : '주관식'}${!x.answer ? ' <span class="warn" title="정답 정보 없음">!</span>' : ''}</td>
+              <td>${rec}</td>
+              <td class="mono sm">${U.esc(x.id)}</td>
+              <td><button class="btn sm ghost viewbtn" data-view="1">보기</button></td></tr>`;
+          }).join('')}</tbody></table>
           ${list.length ? '' : '<p class="muted center pad">조건에 맞는 문제가 없습니다.</p>'}
         </div>
       </section>
@@ -501,6 +509,12 @@ const App = (() => {
           refreshBank(); break;
         }
         case 'clear-skills': F.skills.clear(); refreshBank(); break;
+        case 'mock': {
+          const m = modal(`<h2>모의고사 만들기</h2><p class="muted">문제은행에서 실제 SAT 영역 비율대로 자동으로 골라요. 끝나면 예상 점수가 나와요.</p>
+            <div class="modal-btns"><button class="btn" data-mock="RW">영어만 (54문항)</button><button class="btn" data-mock="MATH">수학만 (44문항)</button><button class="btn primary" data-mock="full">전체 SAT (98문항)</button></div>`);
+          m.querySelectorAll('[data-mock]').forEach(x => x.onclick = () => mockDialog(x.dataset.mock));
+          break;
+        }
         case 'g-all': { const ks = [...new Set(list.map(gkeyOf))]; if (allOpen(list)) openG.clear(); else ks.forEach(k => openG.add(k)); refreshBank(); break; }
         case 'start': startExam(); break;
         case 'saved-go': resumeExam(Exam.pending(), b); break;
@@ -695,7 +709,8 @@ const App = (() => {
   function importView() {
     view().innerHTML = `<div class="page narrow">
       <h1>PDF 업로드</h1>
-      <p class="lead">College Board <b>SAT Suite Question Bank</b>에서 내보낸 PDF를 올리세요. 문제마다 섹션·카테고리(도메인/스킬)·난이도·정답·해설을 자동으로 읽어 분류합니다.</p>
+      <p class="lead">College Board <b>SAT Suite Question Bank</b>에서 내보낸 PDF를 올리면 섹션·카테고리·난이도·정답·해설을 자동으로 읽어 분류합니다.</p>
+      <p class="lead sm-lead"><b>다른 PDF도 돼요</b> (모의고사·문제집·스캔본): 문제 번호와 정답표를 자동으로 찾아 <b>직접 자르기</b> 화면을 열어 줘요. 문제 상자와 정답만 확인하고 넣으면 돼요.</p>
       <ol class="howto">
         <li>Question Bank에서 문제를 고른 뒤 <b>Export</b> → PDF로 저장합니다. <b>정답·해설이 포함된 PDF("답" 파일)</b>를 올려야 채점과 해설 보기가 됩니다. 문제만 있는 PDF를 먼저 올렸다면, 나중에 같은 문제의 답 PDF를 올리면 정답이 자동으로 채워집니다.</li>
         <li>아래에 PDF를 끌어다 놓기 · 여러 파일 한 번에 가능</li>
@@ -807,7 +822,15 @@ const App = (() => {
       const set = (msg, pct) => { row.msg = U.esc(msg); if (pct != null) row.pct = Math.round(pct); scheduleRender(); };
       try {
         // PDF 분석 0~50%, 저장 50~100%
-        const qs = await Parser.parse(f, { difficulty }, (m, p) => set(m, p * 50));
+        let qs;
+        try { qs = await Parser.parse(f, { difficulty }, (m, p) => set(m, p * 50)); }
+        catch (e) {
+          if (e.code !== 'NOT_CB') throw e;
+          // College Board 형식이 아닌 PDF → 직접 자르기 화면에서 문제 영역·정답을 정함
+          set('College Board 형식이 아니라서 직접 자르기 화면을 열었어요', 10);
+          qs = await CropTool.open(f, m => set(m, 10));
+          if (!qs) { row.msg = '<span class="muted">직접 자르기를 취소했어요</span>'; row.pct = 100; row.state = 'fail'; if (jobIds[fi]) { try { await DB.del('jobs', jobIds[fi]); } catch (er) {} } renderImportLog(); continue; }
+        }
         let add = 0, dup = 0, merged = 0;
         const warn = [];
         for (let qi = 0; qi < qs.length; qi++) {
@@ -830,7 +853,7 @@ const App = (() => {
           if (!qmap[q.id]) questions.push(q); else questions[questions.indexOf(qmap[q.id])] = q;
           qmap[q.id] = q; add++;
           liveRefresh();
-          if (!q.skill || !q.answer || !q.difficulty) warn.push(q.id);
+          if (!q.skill || !q.answer || (!q.difficulty && !q.custom)) warn.push(q.id);
         }
         job.totalAdd += add;
         const by = t => qs.filter(q => q.test === t).length;
@@ -1326,7 +1349,7 @@ const App = (() => {
     const has = await Store.bankInAccount();
     if (has) { st.textContent = '기본 문제 2,322개가 내 Google 계정에 들어 있어요. 로그인한 모든 기기에서 보이고, 나만 볼 수 있어요.'; row.innerHTML = window.SAT_BANK ? '<button class="btn" id="bank-up">다시 올리기</button>' : ''; }
     else if (window.SAT_BANK) { st.textContent = '기본 문제를 내 Google 계정에 올리면 휴대폰·태블릿 등 다른 기기에서도 보여요. (처음 한 번만, 약 10MB)'; row.innerHTML = '<button class="btn primary" id="bank-up">기본 문제 내 계정에 올리기</button>'; }
-    else { st.textContent = '기본 문제가 아직 계정에 없어요. 컴퓨터 버전(start.command)에서 로그인한 뒤 이 화면에서 올려주세요.'; row.innerHTML = ''; }
+    else { st.textContent = '이 계정에는 기본 문제가 없어요. College Board 문제은행(Question Bank)에서 PDF를 내보낸 뒤 PDF 업로드 탭에서 올리면 자동으로 분류돼요.'; row.innerHTML = ''; }
     const b = document.getElementById('bank-up');
     if (b) b.onclick = async () => {
       b.disabled = true;

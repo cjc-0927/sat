@@ -65,13 +65,23 @@ const Parser = (() => {
     const vp = page.getViewport({ scale: SCALE });
     const tc = await page.getTextContent();
     const items = [];
+    let sp = false; // 띄어쓰기가 따로 된 조각으로 들어 있는 PDF: 다음 글자 앞에 공백
     for (const it of tc.items) {
-      if (!it.str || !it.str.trim()) continue;
+      if (!it.str || !it.str.trim()) { if (it.str) sp = true; continue; }
       const t = pdfjsLib.Util.transform(vp.transform, it.transform);
       const h = Math.hypot(t[2], t[3]) || 10 * SCALE;
-      items.push({ str: it.str, x: t[4], base: t[5], h, w: (it.width || 0) * SCALE });
+      items.push({ str: it.str, x: t[4], base: t[5], h, w: (it.width || 0) * SCALE, sp });
+      sp = false;
     }
     items.sort((a, b) => a.base - b.base || a.x - b.x);
+    // 새 형식 PDF는 글자 크기가 글꼴 안에 들어 있어 높이가 1pt처럼 나옴 → 줄 간격으로 실제 글자 높이를 짐작
+    const hs = items.map(i => i.h).sort((a, b) => a - b), hMed = hs[hs.length >> 1] || 0;
+    if (items.length && hMed < 3 * SCALE) {
+      const bases = [...new Set(items.map(i => Math.round(i.base)))].sort((a, b) => a - b);
+      const gaps = bases.slice(1).map((b, i) => b - bases[i]).filter(g => g > 4 * SCALE).sort((a, b) => a - b);
+      const g = gaps[gaps.length >> 2] || 14 * SCALE; // 본문 줄 간격(짧은 쪽)
+      items.forEach(i => (i.h = g * 0.72 * (i.h / hMed)));
+    }
     const lines = [];
     for (const it of items) {
       let line = null;
@@ -87,7 +97,7 @@ const Parser = (() => {
       l.items.sort((a, b) => a.x - b.x);
       let text = '', prevEnd = null;
       for (const it of l.items) {
-        if (prevEnd !== null && it.x - prevEnd > l.h * 0.15 && !text.endsWith(' ')) text += ' ';
+        if (prevEnd !== null && (it.sp || it.x - prevEnd > l.h * 0.15) && !text.endsWith(' ')) text += ' ';
         text += it.str;
         prevEnd = it.x + it.w;
       }
@@ -124,8 +134,13 @@ const Parser = (() => {
       else if (!m[2].trim()) starts.push({ i, id });
     });
     if (!starts.length) {
-      throw new Error('College Board 문제은행 PDF 형식("ID: ..." 표시)을 찾지 못했습니다. 문제은행에서 내보낸 PDF인지 확인해주세요.');
+      pdf.destroy();
+      const e = new Error('College Board 문제은행 형식이 아니에요');
+      e.code = 'NOT_CB';
+      throw e;
     }
+
+    if (opts.max) starts.length = Math.min(starts.length, opts.max); // 확인용: 앞의 몇 문제만
 
     // 2) 페이지 렌더링 캐시 + 이미지 자르기
     const cache = new Map();
@@ -273,17 +288,30 @@ const Parser = (() => {
       const nextStart = k + 1 < starts.length ? starts[k + 1].i : all.length;
       const ans = answers.find(a => a.i > s.i && a.i < nextStart);
 
+      // 새 형식(2026~): "Question ID: x" 바로 다음에 표가 있고, Question / Answer / Correct Answer: / Rationale 제목으로 나뉨
+      let nf = null;
+      for (let x = s.i + 1; x < Math.min(nextStart, s.i + 4); x++) if (/^Assessment\b/i.test(all[x].text)) { nf = { assess: x }; break; }
+      if (nf) {
+        const find = (re, from) => { for (let x = from; x < nextStart; x++) if (re.test(all[x].text)) return x; return -1; };
+        nf.q = find(/^Question$/i, nf.assess + 1);
+        if (nf.q < 0) nf.q = nf.assess + 1;
+        nf.ca = find(/^Correct Answer\s*:/i, nf.q + 1);
+        nf.a = find(/^Answers?$/i, nf.q + 1); if (nf.ca >= 0 && nf.a > nf.ca) nf.a = -1;
+        nf.r = find(/^Rationale$/i, Math.max(nf.q, nf.ca) + 1);
+      }
+
       // 헤더(Assessment / Test / Domain / Skill / Difficulty)
-      let hs = Math.max(prevStart + 1, s.i - 6), assess = -1;
-      for (let x = s.i - 1; x > prevStart; x--) if (/Assessment/i.test(all[x].text)) { hs = assess = x; break; }
-      if (assess > 0 && QTITLE.test(all[assess - 1].text)) hs = assess - 1;
-      let headerText = all.slice(hs, s.i).map(l => l.text).join(' ');
+      let hs = Math.max(prevStart + 1, s.i - 6), assess = -1, hEnd = s.i;
+      if (nf) { hs = assess = nf.assess; hEnd = nf.q; }
+      else for (let x = s.i - 1; x > prevStart; x--) if (/Assessment/i.test(all[x].text)) { hs = assess = x; break; }
+      if (!nf && assess > 0 && QTITLE.test(all[assess - 1].text)) hs = assess - 1;
+      let headerText = all.slice(hs, hEnd).map(l => l.text).join(' ');
       if (assess >= 0) {
         // 표 칸 안에서 줄바꿈된 글자를 칸(열)별로 이어 붙임 (예: "Lines, angles, and / triangles")
         const cols = all[assess].items.filter(it => /^(Assessment|Test|Domain|Skill|Di)/.test(it.str.trim())).map(it => it.x);
         if (cols.length >= 3) {
           const txt = cols.map(() => []);
-          for (const l of all.slice(assess + 1, s.i)) for (const it of l.items) {
+          for (const l of all.slice(assess + 1, hEnd)) for (const it of l.items) {
             let k = 0;
             cols.forEach((x, j) => { if (it.x >= x - 8) k = j; });
             txt[k].push(it.str);
@@ -294,27 +322,30 @@ const Parser = (() => {
 
       // 다음 문제 헤더 시작(=해설 끝)
       let end = nextStart;
-      if (k + 1 < starts.length) {
+      if (k + 1 < starts.length && !nf) {
         const lo = ans ? ans.i : s.i;
         for (let x = nextStart - 1; x > lo; x--) if (/Assessment/i.test(all[x].text)) { end = x; break; }
         if (end > lo + 1 && end < nextStart && QTITLE.test(all[end - 1].text)) end = end - 1;
       }
-      const stemEnd = ans ? ans.i : end;
+      const stemStart = nf ? nf.q + 1 : s.i + 1;
+      const stemEnd = nf ? [nf.a, nf.ca, nf.r, end].find(x => x >= 0) : ans ? ans.i : end;
+      const chEnd = nf ? [nf.ca, nf.r, end].find(x => x >= 0) : stemEnd; // 선택지가 끝나는 곳
+      const chFrom = nf ? (nf.a >= 0 ? nf.a : nf.q) : s.i;
 
       // 선택지 A~D
       let markers = null;
-      for (let x = stemEnd - 1; x > s.i && !markers; x--) {
+      for (let x = chEnd - 1; x > chFrom && !markers; x--) {
         if (!/^A\s?[.)](\s|$)/.test(all[x].text)) continue;
         const seq = [x];
         let want = 66; // 'B'
-        for (let y = x + 1; y < stemEnd && want <= 68; y++) {
+        for (let y = x + 1; y < chEnd && want <= 68; y++) {
           if (new RegExp('^' + String.fromCharCode(want) + '\\s?[.)](\\s|$)').test(all[y].text)) { seq.push(y); want++; }
         }
         if (seq.length === 4) markers = seq;
       }
 
       // 정답·난이도
-      const ansLines = ans ? all.slice(ans.i + 1, end).map(l => l.text) : [];
+      const ansLines = nf ? (nf.ca >= 0 ? all.slice(nf.ca, nf.r >= 0 ? nf.r : end).map(l => l.text) : []) : ans ? all.slice(ans.i + 1, end).map(l => l.text) : [];
       const ansText = ansLines.join('\n');
       const ca = ansText.match(/Correct Answer\s*:?\s*([^\n]+)/i);
       const df = (ansText + headerText).replace(/\s+/g, '').match(/QuestionDifficulty:?(Easy|Medium|Hard)/i);
@@ -328,20 +359,21 @@ const Parser = (() => {
           answer = answers2.join(', ');
         }
       }
-      let difficulty = df ? df[1][0].toUpperCase() + df[1].slice(1).toLowerCase() : '';
-      if (!difficulty && assess >= 0) difficulty = await difficultyBars(assess, s.i);
+      const df2 = nf && headerText.match(/\b(Easy|Medium|Hard)\b(?!.*\b(Easy|Medium|Hard)\b)/i);
+      let difficulty = df ? df[1][0].toUpperCase() + df[1].slice(1).toLowerCase() : df2 ? df2[1][0].toUpperCase() + df2[1].slice(1).toLowerCase() : '';
+      if (!difficulty && assess >= 0 && !nf) difficulty = await difficultyBars(assess, s.i);
       if (!difficulty) difficulty = opts.difficulty || '';
 
       // 이미지
       // 문제는 남색 "ID:" 박스 바로 아래부터 (박스 위 첫 글자 줄보다 위에 있는 수식·그림도 포함)
-      const stemFrom = { page: all[s.i].page, y: await idBoxBottom(s.i) };
-      const stemTo = posTop(markers ? markers[0] : stemEnd);
+      const stemFrom = nf ? posAfter(nf.q) : { page: all[s.i].page, y: await idBoxBottom(s.i) };
+      const stemTo = posTop(markers && !nf ? markers[0] : stemEnd);
       const stemImg = await crop(stemFrom, stemTo);
       const choiceImgs = [];
       if (markers) {
         for (let c = 0; c < 4; c++) {
           const from = posTop(markers[c]);
-          const to = posTop(c < 3 ? markers[c + 1] : stemEnd);
+          const to = posTop(c < 3 ? markers[c + 1] : chEnd);
           choiceImgs.push(await crop(from, to, markerRight(all[markers[c]])));
         }
       }
@@ -350,7 +382,7 @@ const Parser = (() => {
       let passageImg = null, promptImg = null;
       const test = cls.test || opts.test || '';
       if (test === 'RW') {
-        const sl = all.slice(s.i + 1, markers ? markers[0] : stemEnd).map((l, idx) => ({ l, idx: s.i + 1 + idx }));
+        const sl = all.slice(stemStart, markers && !nf ? markers[0] : stemEnd).map((l, idx) => ({ l, idx: stemStart + idx }));
         if (sl.length >= 2) {
           const gaps = [];
           for (let q = 1; q < sl.length; q++) {
@@ -376,8 +408,8 @@ const Parser = (() => {
         }
       }
 
-      const rationaleImg = ans ? await crop(ans.i + 1 < end ? posTop(ans.i + 1) : posAfter(ans.i), posTop(end)) : null;
-      const stemText = all.slice(s.i + 1, markers ? markers[0] : stemEnd).map(l => l.text).join(' ').slice(0, 400);
+      const rationaleImg = nf ? (nf.r >= 0 ? await crop(posAfter(nf.r), posTop(end)) : null) : ans ? await crop(ans.i + 1 < end ? posTop(ans.i + 1) : posAfter(ans.i), posTop(end)) : null;
+      const stemText = all.slice(stemStart, markers && !nf ? markers[0] : stemEnd).map(l => l.text).join(' ').slice(0, 400);
 
       results.push({
         id: s.id,
@@ -405,5 +437,127 @@ const Parser = (() => {
     (DOMAINS[t][d] = DOMAINS[t][d] || []).push(s);
   }
 
-  return { parse, DOMAINS, classify };
+  /* ---------- 다른 형식의 PDF (모의고사·문제집·스캔본) ----------
+   * 문제 번호(1. 2. 3. …)와 정답표를 찾아 문제 영역을 짐작 → 직접 자르기 화면에서 고침 */
+  async function openAny(file, onProgress = () => {}) {
+    const data = new Uint8Array(await file.arrayBuffer());
+    const pdf = await pdfjsLib.getDocument({ data }).promise;
+    const pages = [];
+    for (let p = 1; p <= pdf.numPages; p++) {
+      pages[p] = await extractLines(pdf, p);
+      onProgress(p, pdf.numPages);
+    }
+    return { pdf, pages, N: pdf.numPages };
+  }
+
+  const KEY_HEAD = /^(answer key|answers?\b|answer explanations?|정답|해설|답안)/i;
+  const QSTART = /^(?:question\s*|q\.?\s*|문제\s*)?(\d{1,3})\s*(?:[.)]|번)(?:\s+|$)/i;
+  const QNUM_ONLY = /^(\d{1,3})$/;
+  function detect(pages, N) {
+    // 1) 정답표가 시작되는 곳 (그 뒤는 문제가 아니라 답)
+    let keyAt = null;
+    for (let p = 1; p <= N && !keyAt; p++) {
+      const l = pages[p].lines.find(l => KEY_HEAD.test(l.text) && l.text.length < 40);
+      if (l && p > 1) keyAt = { page: p, y: l.top };
+    }
+    const inKey = (p, y) => keyAt && (p > keyAt.page || (p === keyAt.page && y >= keyAt.y));
+    // 2) 정답: "1. B", "1 B", "Question 1 … Correct Answer: B"
+    const key = {};
+    if (keyAt) {
+      const txt = [];
+      for (let p = keyAt.page; p <= N; p++) pages[p].lines.forEach(l => { if (p > keyAt.page || l.top >= keyAt.y) txt.push(l.text); });
+      const t = txt.join('\n');
+      for (const m of t.matchAll(/(?:question\s*)?(\d{1,3})[\s\S]{0,60}?(?:correct answer|answer|정답)\s*[:：]?\s*(?:choice\s*)?([A-D]\b|-?[\d./]+)/gi)) key[+m[1]] = key[+m[1]] || m[2].toUpperCase();
+      for (const m of t.matchAll(/(?:^|\s)(\d{1,3})\s*[.):\-]?\s*\(?([A-D])\)?(?=\s|$|,)/g)) key[+m[1]] = key[+m[1]] || m[2];
+      for (const m of t.matchAll(/(?:^|\s)(\d{1,3})\s*[.):]\s*(-?\d+(?:[./]\d+)?)(?=\s|$|,)/g)) key[+m[1]] = key[+m[1]] || m[2]; // 주관식 숫자 답
+    }
+    // 3) 문제 시작 줄: 왼쪽 끝(단 시작)에 있는 번호, 번호가 1씩 늘어나는 것만
+    const cands = [];
+    for (let p = 1; p <= N; p++) {
+      const pg = pages[p];
+      const lines = pg.lines.filter(l => l.top > pg.height * 0.03 && l.bottom < pg.height * 0.97);
+      if (!lines.length) continue;
+      const cols = [0, pg.width / 2];
+      lines.forEach(l => {
+        const m = l.text.match(QSTART) || (QNUM_ONLY.test(l.text) ? [l.text, l.text] : null);
+        if (!m || inKey(p, l.top)) return;
+        const col = l.x0 >= pg.width * 0.5 ? 1 : 0;
+        const minX = Math.min(...lines.filter(x => (x.x0 >= pg.width * 0.5 ? 1 : 0) === col).map(x => x.x0));
+        if (l.x0 - minX > pg.width * 0.06) return;
+        cands.push({ page: p, y: l.top, x: l.x0, col, num: +m[1], colX: cols[col] });
+      });
+    }
+    const picked = [];
+    let last = 0;
+    for (const c of cands) {
+      if (c.num === last + 1 || (c.num === 1 && last !== 0)) { picked.push(c); last = c.num; }
+    }
+    // 두 단으로 된 페이지인지 (오른쪽 단에 번호가 있으면)
+    const twoCol = new Set(picked.filter(c => c.col === 1).map(c => c.page));
+    // 4) 영역: 다음 번호까지 (같은 페이지·같은 단), 아니면 단 끝까지 + 다음 페이지 윗부분 이어 붙이기
+    const qs = picked.map((c, i) => {
+      const pg = pages[c.page];
+      const two = twoCol.has(c.page);
+      const x1 = two ? (c.col ? pg.width / 2 : 0) : 0, x2 = two ? (c.col ? pg.width : pg.width / 2) : pg.width;
+      const nx = picked[i + 1];
+      const segs = [];
+      const bottomOf = (p, y0) => { const k = inKey(p, pages[p].height) && keyAt.page === p ? keyAt.y : pages[p].height * 0.97; return Math.max(y0 + 10, k); };
+      if (nx && nx.page === c.page && nx.col === c.col) segs.push({ page: c.page, x1, x2, y1: c.y - 6, y2: nx.y - 6 });
+      else {
+        segs.push({ page: c.page, x1, x2, y1: c.y - 6, y2: bottomOf(c.page, c.y) });
+        // 다음 문제가 다음 페이지 중간에서 시작하면 그 위 내용은 이 문제의 이어지는 부분
+        if (nx && nx.page === c.page + 1 && nx.col === 0 && nx.y > pages[nx.page].height * 0.15 && !two) segs.push({ page: nx.page, x1: 0, x2: pages[nx.page].width, y1: pages[nx.page].height * 0.04, y2: nx.y - 6 });
+      }
+      return { num: c.num, segs };
+    });
+    return { qs, key, keyAt };
+  }
+
+  // 영역 안의 글자
+  function textIn(pages, segs) {
+    return segs.map(s => (pages[s.page] ? pages[s.page].lines : []).filter(l => (l.top + l.bottom) / 2 >= s.y1 && (l.top + l.bottom) / 2 <= s.y2 && l.x0 >= s.x1 - 20 && l.x0 < s.x2).map(l => l.text).join('\n')).join('\n');
+  }
+
+  // 문제 글을 보고 섹션·유형 짐작 (College Board 질문 문장은 유형마다 거의 정해져 있음)
+  function guess(text) {
+    const t = (text || '').replace(/\s+/g, ' ');
+    const L = t.toLowerCase();
+    const rw = s => { const x = SKILLS.find(k => k[2] === s); return { test: 'RW', domain: x[1], skill: s }; };
+    const mt = s => { const x = SKILLS.find(k => k[2] === s); return { test: 'MATH', domain: x[1], skill: s }; };
+    if (/conventions of standard english/.test(L)) {
+      const ch = [...t.matchAll(/(?:^|\s)\(?([A-D])[.)]\s+(.+?)(?=\s\(?[A-D][.)]\s|$)/g)].map(m => m[2].toLowerCase().replace(/[^a-z0-9]/g, ''));
+      return rw(ch.length >= 3 && ch.every(c => c === ch[0]) ? 'Boundaries' : 'Form, Structure, and Sense');
+    }
+    if (/most logical transition/.test(L)) return rw('Transitions');
+    if (/student wants to|following notes|taken the following notes/.test(L)) return rw('Rhetorical Synthesis');
+    if (/text 1[\s\S]*text 2/.test(L)) return rw('Cross-Text Connections');
+    if (/logical and precise word|as used in the text|most nearly mean/.test(L)) return rw('Words in Context');
+    if (/main purpose|overall structure|function of the underlined|best describes the function/.test(L)) return rw('Text Structure and Purpose');
+    if (/most logically completes the text/.test(L)) return rw('Inferences');
+    if (/quotation|illustrates the claim|data from the (table|graph)|most directly (support|weaken)|most strongly support|weaken the/.test(L)) return rw('Command of Evidence');
+    if (/main idea|best states the main|according to the text|based on the text/.test(L)) return rw('Central Ideas and Details');
+    const mathy = /[=<>≤≥^√π]|\bvalue of\b|\bequation\b|\bfunction\b|\bxy-plane\b|\bsolution\b|\bpercent\b|\bprobability\b|\bmean\b|\bmedian\b/.test(L);
+    if (!mathy) return { test: /which choice/.test(L) ? 'RW' : '', domain: '', skill: '' };
+    if (/circle|radius|diameter|\barc\b|π/.test(L)) return mt('Circles');
+    if (/\bsin\b|\bcos\b|\btan\b|right triangle|hypotenuse/.test(L)) return mt('Right triangles and trigonometry');
+    if (/triangle|angle|parallel|degrees|°/.test(L)) return mt('Lines, angles, and triangles');
+    if (/\barea\b|volume|cube|cylinder|sphere|prism|surface/.test(L)) return mt('Area and volume');
+    if (/probability|at random/.test(L)) return mt('Probability and conditional probability');
+    if (/margin of error|random sample|survey/.test(L)) return mt('Inference from sample statistics and margin of error');
+    if (/experiment|observational|study (was|is) conducted|conclusion/.test(L)) return mt('Evaluating statistical claims: Observational studies and experiments');
+    if (/scatterplot|line of best fit/.test(L)) return mt('Two-variable data: Models and scatterplots');
+    if (/\bmean\b|\bmedian\b|standard deviation|data set|dot plot|histogram/.test(L)) return mt('One-variable data: Distributions and measures of center and spread');
+    if (/percent|%/.test(L)) return mt('Percentages');
+    if (/\bratio\b|\brate\b|per hour|per minute|miles|proportional|\bunits?\b/.test(L)) return mt('Ratios, rates, proportional relationships, and units');
+    if (/system of|two equations|\(x, ?y\)/.test(L)) return mt('Systems of two linear equations in two variables');
+    if (/inequalit|≤|≥|at least|at most/.test(L)) return mt('Linear inequalities in one or two variables');
+    if (/equivalent|rewritten/.test(L)) return mt('Equivalent expressions');
+    if (/quadratic|exponential|parabola|vertex|polynomial|x\^?2|x²/.test(L)) return mt('Nonlinear functions');
+    if (/slope|intercept|linear function|f\(x\)/.test(L)) return mt('Linear functions');
+    if (/xy-plane|\bline\b/.test(L) || (/=/.test(L) && /\by\b/.test(L))) return mt('Linear equations in two variables');
+    if (/=/.test(L) && /\d\s*[a-z]\b|\b[a-z]\s*[+\-]/.test(L)) return mt('Linear equations in one variable');
+    return { test: 'MATH', domain: '', skill: '' };
+  }
+
+  return { parse, DOMAINS, classify, openAny, detect, textIn, guess, SKILLS, QSTART };
 })();

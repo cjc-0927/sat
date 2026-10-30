@@ -381,7 +381,7 @@ const Exam = (() => {
       <div class="bb-crow ${sel === L ? 'sel' : ''} ${el[L] ? 'elim' : ''}">
         <div class="bb-choice" role="button" tabindex="0" data-act="choose" data-l="${L}">
           <span class="bb-letter">${L}</span>
-          <span class="bb-ctext">${q.kind === 'html' ? qtext(qid, 'c' + i, (q.choices || [])[i] || '', 'q-choice') : img(q.choiceImgs && q.choiceImgs[i])}</span>
+          <span class="bb-ctext">${q.kind === 'html' ? qtext(qid, 'c' + i, (q.choices || [])[i] || '', 'q-choice') : q.choiceImgs && q.choiceImgs[i] ? img(q.choiceImgs[i]) : `<span class="bb-cnone">문제 그림의 ${L} 보기</span>`}</span>
         </div>
         ${ui.crossOut ? (el[L]
           ? `<button class="bb-undo" data-act="elim" data-l="${L}">Undo</button>`

@@ -14,8 +14,8 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="SAT 연습">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<link rel="stylesheet" href="css/app.css?v=64">
-<link rel="stylesheet" href="css/bluebook.css?v=64">
+<link rel="stylesheet" href="css/app.css?v=77">
+<link rel="stylesheet" href="css/bluebook.css?v=77">
 <script src="js/vendor/pdf.min.js"></script>
 </head>
 <body>
@@ -38,15 +38,17 @@
   </header>
   <main id="view"></main>
 </div>
-<script src="data/bank.js"></script>
-<script src="js/firebase-config.js?v=64"></script>
-<script src="js/db.js?v=64"></script>
-<script src="js/parser.js?v=64"></script>
-<script src="js/calc.js?v=64"></script>
-<script src="js/wrong.js?v=64"></script>
-<script src="js/vocab.js?v=64"></script>
-<script src="js/exam.js?v=64"></script>
-<script src="js/app.js?v=64"></script>
+<!-- 기본 문제: 컴퓨터 버전(파일·localhost)은 bank.js를 바로, 웹사이트는 data/bank.json을 나중에 받아옴 (첫 화면이 빨리 뜨게) -->
+<script>if (!/^https?:$/.test(location.protocol) || /^(localhost|127\.0\.0\.1)$/.test(location.hostname)) document.write('<script src="data/bank.js"><\/script>');</script>
+<script src="js/firebase-config.js?v=77"></script>
+<script src="js/db.js?v=77"></script>
+<script src="js/parser.js?v=77"></script>
+<script src="js/calc.js?v=77"></script>
+<script src="js/wrong.js?v=77"></script>
+<script src="js/vocab.js?v=77"></script>
+<script src="js/croptool.js?v=77"></script>
+<script src="js/exam.js?v=77"></script>
+<script src="js/app.js?v=77"></script>
 <script>
   // 사이트를 이 기기에 저장해 오프라인에서도 열리게 (http/https에서만)
   if ('serviceWorker' in navigator && /^https?:/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => {});

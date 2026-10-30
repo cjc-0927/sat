@@ -519,3 +519,40 @@ kbd { font: 11px ui-monospace, Menlo, monospace; border: 1px solid currentColor;
 .wn-tagbox .rv-more .wn-memo { width: 100%; box-sizing: border-box; }
 .wn-prev math { font-size: 1em; }
 @media (max-width: 640px) { .wg-head { flex-wrap: wrap; } .wg-name { flex: 1; } .wg-kinds { order: 3; width: 100%; padding-left: 22px; } }
+
+/* 문제은행 묶음 */
+.qtable.grouped tr.g-test td { background: #eef1f7; font-weight: 700; font-size: 13px; padding: 8px 12px; cursor: default; }
+.qtable.grouped tr.g-dom td { font-size: 12px; color: var(--muted); font-weight: 600; padding: 10px 12px 4px; cursor: default; border-bottom: 0; text-transform: uppercase; letter-spacing: .3px; }
+.qtable.grouped tr.g-test:hover, .qtable.grouped tr.g-dom:hover { background: inherit; }
+.qtable.grouped tr.g-row td { padding: 11px 12px; border-bottom: 1px solid var(--line); }
+.qtable.grouped tr.g-row:hover { background: #f3f5fa; }
+.qtable.grouped tr.g-row.open { background: #f8f9fc; }
+.g-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.g-chev { width: 14px; color: var(--muted); }
+.g-name { font-size: 15px; }
+.g-n { font-size: 13px; color: var(--muted); }
+.g-diff { display: flex; gap: 4px; }
+.g-diff i { font-style: normal; font-size: 11px; padding: 1px 7px; border-radius: 10px; }
+.gd-e { background: #e7f6ec; color: #237a3b; } .gd-m { background: #fff4dc; color: #8a5a00; } .gd-h { background: #fde8e8; color: #b42318; }
+.g-rec .no { color: #b42318; }
+.g-sel { margin-left: auto; font-size: 12px; font-weight: 600; color: var(--blue); }
+.qtable.grouped tr[data-id] td:first-child { padding-left: 34px; }
+.q-snip { font-size: 13.5px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; max-width: 760px; }
+.q-snip math { font-size: 1em; }
+.q-meta { margin-top: 2px; }
+.mock-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; background: #fff; border: 1px solid var(--line); border-left: 4px solid var(--blue); border-radius: 12px; padding: 12px 16px; margin-bottom: 12px; }
+.mock-bar > div:first-child { display: flex; flex-direction: column; gap: 2px; }
+.mock-bar .row { display: flex; gap: 8px; flex-wrap: wrap; }
+.mock-bar small { font-weight: 400; opacity: .75; margin-left: 4px; }
+.mock-score { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 16px 20px; margin: 0 0 16px; }
+.mock-score p { flex-basis: 100%; margin: 0; }
+.ms-total { display: flex; align-items: baseline; gap: 8px; margin-right: 18px; }
+.ms-total span { font-size: 13px; color: var(--muted); }
+.ms-total b { font-size: 36px; color: var(--blue); }
+.ms-total em { font-style: normal; color: var(--muted); }
+.ms-sec { display: flex; flex-direction: column; padding: 6px 14px; border-left: 1px solid var(--line); }
+.ms-sec span { font-size: 12px; color: var(--muted); } .ms-sec b { font-size: 22px; }
+.mock-tag, .att-score .mock-tag { font-size: 11px; background: var(--blue-l); color: var(--blue); padding: 1px 7px; border-radius: 10px; font-weight: 600; }
+@media (max-width: 700px) { .qtable.grouped tr[data-id] td:first-child { padding-left: 12px; } .g-sel { margin-left: 0; } }
+.voc-ctxko { font-size: 12.5px; color: var(--muted); padding: 2px 10px 0; line-height: 1.5; }
+@media (max-width: 700px) { .qtable.grouped th:nth-child(4), .qtable.grouped tr[data-id] td:nth-child(4) { display: none; } .qtable.grouped tr[data-id] td { padding: 8px 6px; } }

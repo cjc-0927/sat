@@ -112,11 +112,73 @@ const Vocab = (() => {
     } finally { clearTimeout(timer); }
   }
 
+  /* 문맥 속 뜻 (무료): 구글 번역 사전의 뜻 목록 중에서, 예문 전체를 번역한 문장에 실제로 나온 뜻을 고름.
+   * 못 고르면 앞뒤 단어로 품사를 짐작해 그 품사의 대표 뜻 */
+  const GT = (q, dt) => 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dj=1&' + dt.map(d => 'dt=' + d).join('&') + '&q=' + encodeURIComponent(q);
+  const POS_KO = { noun: '명사', verb: '동사', adjective: '형용사', adverb: '부사' };
+  function guessPos(sent, word) {
+    const w = sent.toLowerCase().replace(/[^a-z' -]/g, ' ').split(/\s+/).filter(Boolean);
+    const lw = word.toLowerCase().split(' ')[0];
+    const i = w.findIndex(x => x.startsWith(lw.slice(0, Math.max(3, lw.length - 2))));
+    if (i < 0) return '';
+    const prev = w[i - 1] || '', me = w[i];
+    if (/ly$/.test(me) && !/ly$/.test(lw.replace(/ly$/, '')) && me.length > 4) return '부사';
+    if (/^(to|will|would|can|could|may|might|must|should|shall|not|did|does|do)$/.test(prev)) return '동사';
+    if (/(ed|ing)$/.test(me) && /^(is|are|was|were|be|been|has|have|had)$/.test(prev)) return '동사';
+    if (/^(very|so|too|quite|more|most|less|least|rather|is|are|was|were|seem|seems|seemed|become|became)$/.test(prev)) return '형용사';
+    if (/^(the|a|an|this|that|these|those|his|her|their|its|our|my|your|of|such)$/.test(prev)) {
+      const next = w[i + 1] || '';
+      return /^(of|is|was|are|were|that|and|,)$/.test(next) || !next ? '명사' : '형용사';
+    }
+    return '';
+  }
+  async function contextMeaning(v) {
+    const sent = (v.contexts && v.contexts[0] && v.contexts[0].sentence) || '';
+    const [wd, st] = await Promise.all([getJSON(GT(v.word, ['t', 'bd', 'md'])), sent ? getJSON(GT(sent, ['t'])) : null]);
+    if (!wd) { // 구글이 안 되면 예전 방식(MyMemory)
+      const tr = await getJSON('https://api.mymemory.translated.net/get?langpair=en|ko&q=' + encodeURIComponent(v.word));
+      const ko = tr && tr.responseData && tr.responseData.translatedText;
+      return ko && !/MYMEMORY WARNING/i.test(ko) ? { ko: ko.slice(0, 120), pos: v.word.includes(' ') ? '구' : '' } : null;
+    }
+    const want = guessPos(sent, v.word);
+    const groups = (wd.dict || []).map(g => ({ pos: g.pos, terms: (g.entry || []).map(e => String(e.word || '').replace(/^\.\.\.(의|을|를|에|에게|으로|로)?\s*/, '').trim()).filter(Boolean) }))
+      .sort((a, b) => (b.pos === want) - (a.pos === want)); // 문장 속 품사로 짐작되는 뜻부터
+    const sentKo = st ? (st.sentences || []).map(x => x.trans || '').join(' ') : '';
+    const stem = t => t.replace(/\s+/g, '').replace(/(하다|되다|시키다|스럽다|롭다|적인|적으로|하게|하는|한|히|이|다)$/, '');
+    const flat = sentKo.replace(/\s+/g, '');
+    let pick = null;
+    if (flat) for (const g of groups) { // 문맥 번역에 나온 뜻
+      const t = g.terms.find(t => { const k = stem(t); return k.length >= 2 ? flat.includes(k) : flat.includes(t.replace(/\s+/g, '')); });
+      if (t) { pick = { g, t }; break; }
+    }
+    if (!pick && groups.length) {
+      const g = groups.find(x => x.pos === want) || groups[0];
+      pick = { g, t: g.terms[0] };
+    }
+    const main = (wd.sentences || []).map(x => x.trans || '').join('').trim();
+    if (!pick) return main && main.toLowerCase() !== v.word.toLowerCase() ? { ko: main.slice(0, 120), pos: v.word.includes(' ') ? '구' : '' } : null;
+    const others = pick.g.terms.filter(t => t !== pick.t).slice(0, 2);
+    let main1 = pick.t, pos = pick.g.pos || '';
+    // 문장에선 명사인데 동사 뜻만 맞았을 때(예: a champion of → 옹호하다): 번역문에서 실제 낱말(옹호자)을 꺼냄
+    if (want === '명사' && pos !== '명사' && flat) {
+      const k = stem(pick.t);
+      const tok = sentKo.split(/\s+/).find(w => w.includes(k));
+      const n = tok && tok.replace(/[.,!?"'”’)]+$/, '').replace(/(였습니다|이었습니다|입니다|이었다|였다|이다|에게서|에게|에서|으로|로서|로|의|을|를|이|가|은|는|에|와|과|도|만)$/, '');
+      if (n && n.length >= 2 && !/다$/.test(n)) { main1 = n; pos = '명사'; }
+    }
+    const defs = (wd.definitions || []).find(d => d.pos === pos) || (wd.definitions || []).find(d => d.pos === pick.g.pos) || (wd.definitions || [])[0];
+    return {
+      ko: [...new Set([main1, pick.t, ...others])].slice(0, 3).join(', ').slice(0, 120),
+      pos, ctxKo: sentKo.slice(0, 300),
+      def: defs && defs.entry && defs.entry[0] ? String(defs.entry[0].gloss || '').slice(0, 200) : '',
+    };
+  }
+
   /* ---------- 뜻 찾기 ----------
    * claude.ai에서는 Claude가 문장 속 뜻을 한국어로 알려줌(여러 단어를 한 번에),
    * 그 밖의 곳에서는 무료 번역(MyMemory) + 영영사전(dictionaryapi.dev) */
-  async function lookup(list, onProgress) {
-    list = list.filter(v => !v.ko);
+  async function lookup(list, onProgress, force) {
+    list = force ? list : list.filter(v => !v.ko);
     if (!list.length) return 0;
     if (looking) return 0;
     if (navigator.onLine === false) { // 오프라인: 단어는 저장돼 있고, 인터넷이 연결되면 자동으로 뜻을 채움
@@ -134,7 +196,7 @@ const Vocab = (() => {
           for (const r of Array.isArray(res) ? res : []) {
             const v = chunk.find(x => x.word.toLowerCase() === String(r.word || '').toLowerCase());
             if (!v || !r.ko) continue;
-            Object.assign(v, { ko: String(r.ko).slice(0, 120), pos: String(r.pos || '').slice(0, 20) });
+            Object.assign(v, { ko: String(r.ko).slice(0, 120), pos: String(r.pos || '').slice(0, 20), src: 'auto' });
             await Store.put('vocab', v); n++;
           }
           onProgress && onProgress(Math.min(i + 40, list.length), list.length);
@@ -144,17 +206,8 @@ const Vocab = (() => {
         const queue = [...list];
         const one = async v => {
           try {
-            const [tr, dict] = await Promise.all([
-              getJSON('https://api.mymemory.translated.net/get?langpair=en|ko&q=' + encodeURIComponent(v.word)),
-              v.word.includes(' ') ? null : getJSON('https://api.dictionaryapi.dev/api/v2/entries/en/' + encodeURIComponent(v.word.toLowerCase())),
-            ]);
-            const ko = tr && tr.responseData && tr.responseData.translatedText;
-            const m = Array.isArray(dict) && dict[0] && dict[0].meanings && dict[0].meanings[0];
-            const POS = { noun: '명사', verb: '동사', adjective: '형용사', adverb: '부사' };
-            if (ko && !/MYMEMORY WARNING/i.test(ko)) {
-              Object.assign(v, { ko: ko.slice(0, 120), pos: m ? (POS[m.partOfSpeech] || m.partOfSpeech) : (v.word.includes(' ') ? '구' : ''), def: m && m.definitions && m.definitions[0] ? m.definitions[0].definition.slice(0, 200) : '' });
-              await Store.put('vocab', v); n++;
-            }
+            const r = await contextMeaning(v);
+            if (r) { Object.assign(v, r, { src: 'auto' }); await Store.put('vocab', v); n++; }
           } catch (e) {}
           onProgress && onProgress(++done, list.length);
         };
@@ -209,6 +262,7 @@ const Vocab = (() => {
           <button class="${autoMode() === 'manual' ? 'on' : ''}" data-auto="manual">버튼 누를 때만</button>
         </div>
         ${pend ? `<button class="btn primary" id="voc-fill">뜻 채우기 (${pend})</button>` : ''}
+        ${words.some(w => w.ko && w.src !== 'manual') ? '<button class="btn" id="voc-redo" title="직접 고친 뜻은 그대로 둬요">문맥 뜻 다시 찾기</button>' : ''}
         <button class="btn" id="voc-add">+ 단어 추가</button>
       </div>
       ${words.length ? '' : `<div class="empty"><div class="empty-icon">🖍️</div><h2>아직 모은 단어가 없어요</h2>
@@ -220,6 +274,7 @@ const Vocab = (() => {
             <input class="voc-ko" value="${esc(w.ko)}" placeholder="${w.ko ? '' : (looking ? '뜻 찾는 중…' : '뜻이 비어 있어요 — 직접 입력하거나 “뜻 채우기”를 누르세요')}" aria-label="${esc(w.word)} 뜻">
             ${w.def ? `<div class="voc-def">${esc(w.def)}</div>` : ''}
             ${(w.contexts || []).slice(0, 2).map(c => `<div class="voc-ctx">“${markWord(c.sentence, w.word)}”${c.qid ? ` <button class="link sm" data-q="${esc(c.qid)}">문제 보기</button>` : ''}</div>`).join('')}
+            ${w.ctxKo ? `<div class="voc-ctxko">→ ${esc(w.ctxKo)}</div>` : ''}
           </div>
           <div class="voc-side">
             <div class="voc-stat" title="플래시카드 기록"><span class="ok">✓ ${w.right || 0}</span> <span class="no">✗ ${w.wrong || 0}</span></div>
@@ -239,6 +294,13 @@ const Vocab = (() => {
       await fill(); rerender();
     });
     $('#voc-add').onclick = () => addDialog(rerender);
+    $('#voc-redo') && ($('#voc-redo').onclick = async () => {
+      const redo = words.filter(w => w.ko && w.src !== 'manual');
+      if (!await U.confirm(`${redo.length}개 단어의 뜻을 문장에 맞게 다시 찾을까요?`, '직접 입력하거나 고친 뜻은 바꾸지 않아요.', '다시 찾기')) return;
+      const b = el.querySelector('#voc-redo'); b.disabled = true;
+      const n = await lookup(redo, (i, t) => { const bb = el.querySelector('#voc-redo'); if (bb) bb.textContent = `찾는 중 ${i}/${t}`; }, true);
+      ui.toast(`${n}개 단어의 뜻을 다시 찾았어요`); rerender();
+    });
     $('#voc-allow') && ($('#voc-allow').onclick = async () => { const st = await askSample(); if (st === 'granted') { await fill(); } rerender(); });
     $('#voc-perm') && ($('#voc-perm').onclick = async () => { await openPermissions(); rerender(); });
     const fill = async () => {
@@ -250,7 +312,7 @@ const Vocab = (() => {
     el.querySelectorAll('[data-auto]').forEach(b => b.onclick = () => { setAutoMode(b.dataset.auto); rerender(); });
     el.querySelectorAll('.voc').forEach(row => {
       const v = words.find(w => w.id === row.dataset.id);
-      row.querySelector('.voc-ko').onchange = async e => { v.ko = e.target.value.trim(); await Store.put('vocab', v); ui.toast('저장했어요'); };
+      row.querySelector('.voc-ko').onchange = async e => { v.ko = e.target.value.trim(); v.src = 'manual'; await Store.put('vocab', v); ui.toast('저장했어요'); };
       row.querySelector('[data-known]').onchange = async e => { v.known = e.target.checked; await Store.put('vocab', v); rerender(); };
       row.querySelector('[data-del]').onclick = async () => {
         if (!await U.confirm(`“${v.word}”을(를) 단어장에서 삭제할까요?`, '', '삭제')) return;
@@ -273,7 +335,7 @@ const Vocab = (() => {
       const word = m.querySelector('#nw-word').value, ko = m.querySelector('#nw-ko').value.trim();
       const v = await capture(word, m.querySelector('#nw-ctx').value, null);
       if (!v) { ui.toast(clean(word) && words.some(x => x.id === keyOf(clean(word))) ? '이미 단어장에 있는 단어예요' : '영단어를 입력해주세요'); return; }
-      if (ko) { v.ko = ko; await Store.put('vocab', v); }
+      if (ko) { v.ko = ko; v.src = 'manual'; await Store.put('vocab', v); }
       ui.closeModal();
       done();
     };
@@ -302,7 +364,7 @@ const Vocab = (() => {
         <button class="fc-card ${flipped ? 'flip' : ''}" id="fc-card" aria-label="카드 뒤집기">
           <span class="fc-face fc-front"><span class="fc-word">${esc(w.word)}</span>${w.pos ? `<span class="fc-pos">${esc(w.pos)}</span>` : ''}
             ${ctx ? `<span class="fc-ctx">“${markWord(ctx, w.word)}”</span>` : ''}<span class="fc-hint">뜻을 떠올려 보세요</span></span>
-          <span class="fc-face fc-back"><span class="fc-ko">${esc(w.ko || '(뜻이 아직 없어요)')}</span>${w.def ? `<span class="fc-def">${esc(w.def)}</span>` : ''}<span class="fc-word sm">${esc(w.word)}</span></span>
+          <span class="fc-face fc-back"><span class="fc-ko">${esc(w.ko || '(뜻이 아직 없어요)')}</span>${w.def ? `<span class="fc-def">${esc(w.def)}</span>` : ''}${w.ctxKo ? `<span class="fc-def">→ ${esc(w.ctxKo)}</span>` : ''}<span class="fc-word sm">${esc(w.word)}</span></span>
         </button>
         <div class="fc-btns">
           <button class="btn fc-no" id="fc-no" ${flipped ? '' : 'disabled'}>몰라요 <kbd>←</kbd></button>

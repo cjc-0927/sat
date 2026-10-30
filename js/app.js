@@ -217,37 +217,175 @@ const App = (() => {
       <section class="qlist">
         ${saved ? `<div class="resume-bar"><div><b>⏸ 저장해 둔 시험이 있어요</b><br><span class="muted sm">${U.esc(saved.date)} · ${saved.modules.map(x => `${U.TEST_NAME[x.test]} ${x.qids.length}문항`).join(', ')} · ${Object.keys(saved.responses || {}).length}문항 풀었음</span></div>
           <div class="row"><button class="btn ghost danger sm" data-act="saved-del">버리기</button><button class="btn primary" data-act="saved-go">이어서 풀기</button></div></div>` : ''}
+        <div class="mock-bar">
+          <div><b>📝 모의고사 만들기</b><span class="muted sm">문제은행에서 실제 SAT 영역 비율대로 자동 출제 · 끝나면 예상 점수</span></div>
+          <div class="row"><button class="btn primary" data-mock="full">전체 SAT <small>98문항</small></button><button class="btn" data-mock="RW">영어만 <small>54문항</small></button><button class="btn" data-mock="MATH">수학만 <small>44문항</small></button></div>
+        </div>
         <div class="toolbar bank-tools">
           <input class="search" placeholder="ID 또는 지문 검색" value="${U.esc(F.q)}">
           <span class="muted">${list.length}문항</span>
-          <span class="sel-hint muted sm" title="여러 문제 한 번에 선택">💡 여러 개 선택: 줄을 누른 채 위아래로 끌기 · 또는 첫 줄 클릭 후 Shift+클릭</span>
+          <button class="btn ghost sm" data-act="g-all">${allOpen(list) ? '모두 접기' : '모두 펼치기'}</button>
+          <span class="sel-hint muted sm" title="여러 문제 한 번에 선택">💡 묶음을 눌러 펼치고, 줄을 눌러 고르세요 (누른 채 끌면 여러 개)</span>
           <div class="spacer"></div>
           <button class="btn" data-act="sel-all">필터 결과 전체 선택</button>
           <span class="rand"><input type="number" min="1" value="${settings().randN || 10}" class="randN"> <button class="btn" data-act="sel-rand">개 랜덤 선택</button></span>
           <button class="btn ghost" data-act="sel-none">선택 해제</button>
         </div>
         ${questions.some(q => q.bank) ? `<p class="src-note">기본 문제 ${questions.filter(q => q.bank).length.toLocaleString()}개는 <b>College Board SAT Suite Question Bank</b> 문제입니다 (Reading &amp; Writing 전체 · Math Hard). 문제·정답·해설의 저작권은 College Board에 있습니다.</p>` : ''}
-        <div class="table-wrap"><table class="qtable">
-          <thead><tr><th><input type="checkbox" data-act="toggle-page" ${list.length && list.every(x => sel.has(x.id)) ? 'checked' : ''}></th><th>섹션</th><th>카테고리</th><th>난이도</th><th>유형</th><th>기록</th><th>ID</th><th></th></tr></thead>
-          <tbody>${list.map(x => {
-            const s = status[x.id];
-            const rec = s ? `<span class="rec ${s.last ? 'ok' : 'no'}">${s.last ? '✓' : '✗'}</span> <span class="muted sm">${s.right}/${s.n} · ${U.esc(s.lastDate || '')}</span>` : '<span class="muted sm">—</span>';
-            return `<tr class="${sel.has(x.id) ? 'sel' : ''}" data-id="${U.esc(x.id)}">
-              <td><input type="checkbox" class="rowchk" ${sel.has(x.id) ? 'checked' : ''}></td>
-              <td>${tBadge(x.test)}</td>
-              <td><button class="cat-link" data-view="1" title="문제 보기"><span class="cat-d">${U.esc(x.domain || '미분류')}</span><span class="cat-s">${U.esc(x.skill || '')}</span></button><div class="cat-src">${srcBadge(x)}</div></td>
-              <td>${dBadge(x.difficulty)}</td>
-              <td class="sm">${x.type === 'mcq' ? '객관식' : '주관식'}${!x.answer ? ' <span class="warn" title="정답 정보 없음">!</span>' : ''}</td>
-              <td>${rec}</td>
-              <td class="mono sm">${U.esc(x.id)}</td>
-              <td><button class="btn sm ghost viewbtn" data-view="1">보기</button></td></tr>`;
-          }).join('')}</tbody></table>
+        <div class="table-wrap"><table class="qtable grouped">
+          <thead><tr><th><input type="checkbox" data-act="toggle-page" title="보이는 문제 전체 선택" ${list.length && list.every(x => sel.has(x.id)) ? 'checked' : ''}></th><th>문제</th><th>난이도</th><th>기록</th><th></th></tr></thead>
+          <tbody>${groupRows(list)}</tbody></table>
           ${list.length ? '' : '<p class="muted center pad">조건에 맞는 문제가 없습니다.</p>'}
         </div>
       </section>
     </div>
     ${startBar()}`;
     bindBank();
+  }
+
+  /* 문제은행 묶음: 섹션 › 카테고리 › 유형(스킬)별로 접었다 펼치기 */
+  const openG = new Set();
+  let groupIds = {};
+  const gkeyOf = x => (x.test || '?') + '|' + (x.skill || '__none:' + (x.domain || ''));
+  const autoOpen = list => !!F.q.trim() || list.length <= 40;
+  const allOpen = list => autoOpen(list) || [...new Set(list.map(gkeyOf))].every(k => openG.has(k));
+  const snip = q => { const p = WrongNotes.preview(q); return typeof p === 'object' ? p.html : U.esc(p); };
+  function groupRows(list) {
+    groupIds = {};
+    const auto = autoOpen(list);
+    let out = '', lastT = null, lastD = null;
+    const groups = [];
+    list.forEach(x => { const k = gkeyOf(x); if (!groupIds[k]) { groupIds[k] = []; groups.push([k, x]); } groupIds[k].push(x.id); });
+    for (const [k, first] of groups) {
+      const items = groupIds[k].map(id => qmap[id]);
+      if (first.test !== lastT) { out += `<tr class="g-test"><td colspan="5">${U.esc(U.TEST_NAME[first.test] || '섹션 미확인')}</td></tr>`; lastT = first.test; lastD = null; }
+      if ((first.domain || '') !== lastD) { out += `<tr class="g-dom"><td colspan="5">${U.esc(first.domain || '미분류')}</td></tr>`; lastD = first.domain || ''; }
+      const open = auto || openG.has(k);
+      const dc = d => items.filter(x => (x.difficulty || '') === d).length;
+      const done = items.filter(x => status[x.id]).length, wrong = items.filter(x => status[x.id] && status[x.id].last === false).length;
+      const ns = items.filter(x => sel.has(x.id)).length;
+      out += `<tr class="g-row ${open ? 'open' : ''}" data-g="${U.esc(k)}">
+        <td><input type="checkbox" class="gchk" title="이 묶음 전체 선택" ${ns === items.length ? 'checked' : ''} data-part="${ns && ns < items.length ? 1 : ''}"></td>
+        <td colspan="4"><div class="g-head"><span class="g-chev">${open ? '▾' : '▸'}</span><b class="g-name">${U.esc(first.skill || '스킬 미확인')}</b><span class="g-n">${items.length}문제</span>
+          <span class="g-diff">${[['Easy', 'e'], ['Medium', 'm'], ['Hard', 'h']].filter(([d]) => dc(d)).map(([d, c]) => `<i class="gd-${c}">${DIFF_KO[d]} ${dc(d)}</i>`).join('')}</span>
+          <span class="g-rec muted sm">${done ? `푼 문제 ${done}` : '아직 안 풂'}${wrong ? ` · <span class="no">틀림 ${wrong}</span>` : ''}</span>
+          <span class="g-sel">${ns ? `${ns}개 선택` : ''}</span></div></td></tr>`;
+      if (!open) continue;
+      out += items.map(x => {
+        const st = status[x.id];
+        const rec = st ? `<span class="rec ${st.last ? 'ok' : 'no'}">${st.last ? '✓' : '✗'}</span> <span class="muted sm">${st.right}/${st.n}</span>` : '<span class="muted sm">—</span>';
+        return `<tr class="${sel.has(x.id) ? 'sel' : ''}" data-id="${U.esc(x.id)}" data-g="${U.esc(k)}">
+          <td><input type="checkbox" class="rowchk" ${sel.has(x.id) ? 'checked' : ''}></td>
+          <td><div class="q-snip">${snip(x)}</div><div class="q-meta muted sm">${x.type === 'mcq' ? '객관식' : '주관식'}${!x.answer ? ' <span class="warn" title="정답 정보 없음">!</span>' : ''} · ${x.bank ? 'CB' : '내 업로드'} · <span class="mono">${U.esc(x.id)}</span></div></td>
+          <td>${dBadge(x.difficulty)}</td>
+          <td>${rec}</td>
+          <td><button class="btn sm ghost viewbtn" data-view="1">보기</button></td></tr>`;
+      }).join('');
+    }
+    return out;
+  }
+  function syncGroups() {
+    document.querySelectorAll('.g-row').forEach(r => {
+      const ids = groupIds[r.dataset.g] || [], ns = ids.filter(id => sel.has(id)).length;
+      const c = r.querySelector('.gchk'); c.checked = ns === ids.length && ns > 0; c.indeterminate = ns > 0 && ns < ids.length;
+      r.querySelector('.g-sel').textContent = ns ? `${ns}개 선택` : '';
+    });
+  }
+
+  /* ---------- 모의고사: 실제 SAT 영역 비율 ----------
+   * R&W 54 = Craft&Structure 15 · Information&Ideas 14 · Conventions 14 · Expression 11
+   * Math 44 = Algebra 15 · Advanced Math 15 · PSDA 7 · Geometry&Trig 7 */
+  const MOCK = {
+    RW: [['Craft and Structure', 15], ['Information and Ideas', 14], ['Standard English Conventions', 14], ['Expression of Ideas', 11]],
+    MATH: [['Algebra', 15], ['Advanced Math', 15], ['Problem-Solving and Data Analysis', 7], ['Geometry and Trigonometry', 7]],
+  };
+  const shuffled = a => { a = [...a]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  // 난이도(쉬움·보통·어려움)와 유형이 골고루 섞이게 뽑기
+  function pickBalanced(pool, n, fresh) {
+    const order = list => { // 유형을 돌아가며 (안 푼 문제 먼저)
+      const by = {}; shuffled(list).sort((a, b) => fresh ? (!!status[a.id]) - (!!status[b.id]) : 0).forEach(q => { const k = (q.skill || '').toLowerCase(); (by[k] = by[k] || []).push(q); });
+      const out = [], ks = Object.keys(by);
+      while (out.length < list.length) ks.forEach(k => by[k].length && out.push(by[k].shift()));
+      return out;
+    };
+    const buckets = ['Easy', 'Medium', 'Hard', ''].map(d => order(pool.filter(q => (q.difficulty || '') === d))).filter(b => b.length);
+    const out = [];
+    while (out.length < n && buckets.some(b => b.length)) buckets.forEach(b => out.length < n && b.length && out.push(b.shift()));
+    return out;
+  }
+  function buildMock(kind, fresh) {
+    const tests = kind === 'full' ? ['RW', 'MATH'] : [kind];
+    const res = { list: [], short: [] };
+    for (const t of tests) {
+      const m1 = [], m2 = [];
+      MOCK[t].forEach(([d, n], di) => {
+        const got = pickBalanced(questions.filter(q => q.test === t && q.domain === d && q.answer), n, fresh);
+        if (got.length < n) res.short.push(`${d} ${n - got.length}문항`);
+        // 모듈 1·2에 반씩 (홀짝 영역마다 번갈아 올림/내림 → 27+27, 22+22)
+        const h = di % 2 ? Math.floor(got.length / 2) : Math.ceil(got.length / 2);
+        // R&W: 실제처럼 유형 순서(Words in Context → Text Structure → …) 안에서 쉬운 문제부터
+        const si = q => { const i = SKILL_ORDER.findIndex(x => x.toLowerCase() === (q.skill || '').toLowerCase()); return i < 0 ? 99 : i; };
+        const byDiff = l => [...l].sort((a, b) => si(a) - si(b) || DIFF_ORDER[a.difficulty || ''] - DIFF_ORDER[b.difficulty || '']);
+        m1.push(...(t === 'RW' ? byDiff(got.slice(0, h)) : got.slice(0, h))); m2.push(...(t === 'RW' ? byDiff(got.slice(h)) : got.slice(h)));
+      });
+      // R&W는 실제처럼 영역 순서대로, Math는 섞은 뒤 쉬운 문제부터
+      const fix = l => t === 'RW' ? l : shuffled(l).sort((a, b) => DIFF_ORDER[a.difficulty || ''] - DIFF_ORDER[b.difficulty || '']);
+      res.list.push(...fix(m1), ...fix(m2));
+    }
+    return res;
+  }
+  const MOCK_NAME = { full: '전체 SAT 모의고사', RW: '영어(R&W) 모의고사', MATH: '수학 모의고사' };
+  function mockDialog(kind) {
+    const tests = kind === 'full' ? ['RW', 'MATH'] : [kind];
+    const total = tests.reduce((t, x) => t + MOCK[x].reduce((a, [, n]) => a + n, 0), 0);
+    const mins = tests.reduce((t, x) => t + (x === 'RW' ? 64 : 70), 0);
+    modal(`<h2>${MOCK_NAME[kind]}</h2>
+      <ul class="startinfo">
+        ${tests.map((t, i) => `<li>Section ${i + 1} · ${U.TEST_NAME[t]} <b>${t === 'RW' ? '27문항 × 모듈 2개 · 32분씩' : '22문항 × 모듈 2개 · 35분씩'}</b>
+          <div class="muted sm">${MOCK[t].map(([d, n]) => `${U.esc(d)} ${n}`).join(' · ')}</div></li>`).join('')}
+        <li>총 <b>${total}문항 · 약 ${Math.floor(mins / 60) ? Math.floor(mins / 60) + '시간 ' : ''}${mins % 60 ? mins % 60 + '분' : ''}</b> · 쉬움·보통·어려움을 골고루 섞어요</li>
+      </ul>
+      ${tests.includes('MATH') && !questions.some(q => q.test === 'MATH' && q.difficulty !== 'Hard') ? '<p class="notice">문제은행의 수학 문제는 <b>어려움(Hard)</b>만 있어서 수학은 전부 어려운 문제로 나와요. 예상 점수는 난이도를 반영해서 계산해요.</p>' : ''}
+      <label class="chk"><input type="checkbox" id="mk-fresh" checked> 안 푼 문제 먼저 내기</label>
+      <div class="timing" role="radiogroup" aria-label="시간 설정">
+        <label class="tchoice"><input type="radio" name="mk-timed" value="1" checked><span><b>시간 재기</b><small>실제 SAT 시간 · 끝나면 다음 모듈로</small></span></label>
+        <label class="tchoice"><input type="radio" name="mk-timed" value="0"><span><b>시간 안 재기</b><small>제한 없이 · 걸린 시간만 기록</small></span></label>
+      </div>
+      <p class="muted sm">끝나면 섹션별 200–800점으로 <b>예상 점수</b>를 보여줘요. 실제 SAT는 2모듈 난이도가 달라지는 적응형이라 실제 점수와 조금 다를 수 있어요.</p>
+      <div class="modal-btns"><button class="btn" data-close>취소</button><button class="btn primary" id="mk-go">시작하기</button></div>`);
+    document.getElementById('mk-go').onclick = async () => {
+      Exam.enterFs();
+      const b = document.getElementById('mk-go'); b.disabled = true;
+      const { list, short } = buildMock(kind, document.getElementById('mk-fresh').checked);
+      if (!list.length) { closeModal(); toast('문제은행에 모의고사를 만들 문제가 없어요'); return; }
+      if (short.length) toast(`문제가 부족해서 빠진 문항: ${short.join(', ')}`);
+      const timed = (document.querySelector('input[name="mk-timed"]:checked') || {}).value !== '0';
+      const name = settings().name || (Store.user && Store.user.name) || 'Student';
+      const ok = await hydrateOrToast(list, (n, t) => { b.textContent = `문제 불러오는 중 ${n}/${t}`; });
+      closeModal();
+      if (ok) Exam.start(list, { date: U.today(), name, timed, mock: kind, onFinish: afterExam, onAsk });
+    };
+  }
+  /* 예상 점수(섹션마다 200–800, 10점 단위): 문제 난이도를 반영해 실력(θ)을 추정한 뒤
+   * 쉬움·보통·어려움이 고르게 섞인 보통 시험에서 맞힐 비율로 환산 — 어려운 문제만 풀어도 점수가 너무 낮게 나오지 않게 */
+  const DIFF_B = { Easy: -1.2, Medium: 0, Hard: 1.2 };
+  const sig = x => 1 / (1 + Math.exp(-x));
+  function scaled(its) {
+    if (!its.length) return null;
+    if (its.every(i => i.correct)) return 800;
+    let best = 0, bestL = -Infinity;
+    for (let th = -4; th <= 4.001; th += 0.02) {
+      let L = -th * th / 8; // 너무 극단으로 가지 않게
+      for (const i of its) { const p = sig(th - (DIFF_B[i.difficulty] ?? 0)); L += Math.log(i.correct ? p : 1 - p); }
+      if (L > bestL) { bestL = L; best = th; }
+    }
+    const p = (sig(best + 1.2) + sig(best) + sig(best - 1.2)) / 3;
+    return Math.min(800, Math.max(200, Math.round((200 + 600 * p) / 10) * 10));
+  }
+  function mockScore(a) {
+    const sec = t => scaled(a.items.filter(i => (i.test === 'MATH') === (t === 'MATH')));
+    const rw = sec('RW'), m = sec('MATH');
+    return { rw, m, total: (rw || 0) + (m || 0) };
   }
 
   function startBar() {
@@ -325,7 +463,13 @@ const App = (() => {
     window.addEventListener('mouseup', endDrag);
     tbody.onclick = e => {
       const tr = e.target.closest('tr'); if (!tr) return;
-      const id = tr.dataset.id;
+      if (tr.classList.contains('g-row')) { // 묶음 줄: 체크박스 = 묶음 전체 선택, 그 외 = 펼치기/접기
+        const k = tr.dataset.g;
+        if (e.target.classList.contains('gchk')) { (groupIds[k] || []).forEach(id => e.target.checked ? sel.add(id) : sel.delete(id)); refreshBank(); return; }
+        if (autoOpen(filtered())) return;
+        openG.has(k) ? openG.delete(k) : openG.add(k); refreshBank(); return;
+      }
+      const id = tr.dataset.id; if (!id) return;
       if (Date.now() - dragEnd < 300) return; // 드래그 직후 생기는 클릭은 무시
       // Shift+클릭이 아닐 때만: 글씨(카테고리)나 "보기"를 누르면 문제 정보, 그 외 줄 아무 곳이나 누르면 선택/해제
       if (!e.shiftKey && e.target.closest('[data-view]')) { preview(id); return; }
@@ -339,6 +483,8 @@ const App = (() => {
       bankLast = idx;
       updateStartBar();
     };
+    v.querySelectorAll('[data-mock]').forEach(b => b.onclick = () => mockDialog(b.dataset.mock));
+    v.querySelectorAll('.gchk[data-part="1"]').forEach(c => (c.indeterminate = true));
     v.onclick = e => {
       const b = e.target.closest('[data-act]'); if (!b) return;
       const list = filtered();
@@ -355,6 +501,7 @@ const App = (() => {
           refreshBank(); break;
         }
         case 'clear-skills': F.skills.clear(); refreshBank(); break;
+        case 'g-all': { const ks = [...new Set(list.map(gkeyOf))]; if (allOpen(list)) openG.clear(); else ks.forEach(k => openG.add(k)); refreshBank(); break; }
         case 'start': startExam(); break;
         case 'saved-go': resumeExam(Exam.pending(), b); break;
         case 'saved-del': U.confirm('저장해 둔 시험을 버릴까요?', '푼 답은 기록되지 않습니다.', '버리기').then(ok => { if (ok) { Exam.discard(); refreshBank(); } }); break;
@@ -369,6 +516,7 @@ const App = (() => {
     document.querySelector('#examDate').value = date;
     const all = document.querySelector('[data-act="toggle-page"]');
     if (all) all.checked = filtered().every(x => sel.has(x.id));
+    syncGroups();
   }
 
   function startExam() {
@@ -750,10 +898,11 @@ const App = (() => {
         return `<div class="att" data-aid="${a.aid}">
           <input type="date" class="att-date" value="${U.esc(a.date)}" title="풀이 날짜 변경">
           <div class="att-main">
-            <div>${a.modules.map(m => `${tBadge(m.test)} ${m.count}문항`).join(' ')}</div>
-            <div class="muted sm">${a.modules.map(m => `${m.test === 'RW' ? 'R&W' : 'Math'} ${U.korDur(m.used)} / ${(m.limit ? U.korDur(m.limit) : '제한 없음')}`).join(' · ')}</div>
+            ${(() => { const secs = ['RW', 'MATH'].map(t => { const ms = a.modules.filter(m => m.test === t); return ms.length && { test: t, count: ms.reduce((x, m) => x + m.count, 0), used: ms.reduce((x, m) => x + (m.used || 0), 0), limit: ms.reduce((x, m) => x + (m.limit || 0), 0) }; }).filter(Boolean);
+              return `<div>${secs.map(m => `${tBadge(m.test)} ${m.count}문항`).join(' ')}</div>
+            <div class="muted sm">${secs.map(m => `${m.test === 'RW' ? 'R&W' : 'Math'} ${U.korDur(m.used)} / ${(m.limit ? U.korDur(m.limit) : '제한 없음')}`).join(' · ')}</div>`; })()}
           </div>
-          <div class="att-score"><b>${s.c}/${s.n}</b><span>${s.p}%</span></div>
+          <div class="att-score">${a.mock ? `<span class="mock-tag">${a.mock === 'full' ? '모의고사' : a.mock === 'RW' ? '영어 모의' : '수학 모의'}</span><b>${mockScore(a).total}점</b><span>${s.c}/${s.n}</span>` : `<b>${s.c}/${s.n}</b><span>${s.p}%</span>`}</div>
           <div class="att-v ${v ? 'bad' : ''}">${v ? `이탈 ${v}회` : '이탈 없음'}</div>
           <div class="att-rv" data-rv="${a.aid}"></div>
           <a class="btn" href="#attempt-${a.aid}">상세</a>
@@ -826,10 +975,17 @@ const App = (() => {
         </div>
         <div class="att-big"><b>${s.c}</b><span>/ ${s.n}</span><em>${s.p}%</em></div>
       </div>
-      <div class="mods">${a.modules.map(m => {
-        const its = a.items.filter(i => (i.test === 'MATH' ? 'MATH' : 'RW') === m.test);
+      ${a.mock ? (() => { const sc = mockScore(a); return `<div class="mock-score">
+        <div class="ms-total"><span>${MOCK_NAME[a.mock] || '모의고사'} 예상 점수</span><b>${sc.total}</b>${a.mock === 'full' ? '<em>/ 1600</em>' : '<em>/ 800</em>'}</div>
+        ${sc.rw != null ? `<div class="ms-sec"><span>Reading and Writing</span><b>${sc.rw}</b></div>` : ''}
+        ${sc.m != null ? `<div class="ms-sec"><span>Math</span><b>${sc.m}</b></div>` : ''}
+        <p class="muted sm">문제 난이도를 반영해 계산한 예상 점수예요. 실제 SAT는 적응형이라 ±30~50점 정도 다를 수 있어요.</p></div>`; })() : ''}
+      <div class="mods">${a.modules.map((m, mi) => {
+        const split = a.modules.filter(x => x.test === m.test).length > 1; // 모의고사: 섹션마다 모듈 2개
+        const off = a.modules.slice(0, mi).reduce((t, x) => t + (x.count || 0), 0);
+        const its = split ? a.items.slice(off, off + m.count) : a.items.filter(i => (i.test === 'MATH' ? 'MATH' : 'RW') === m.test);
         const c = its.filter(i => i.correct).length;
-        return `<div class="mod">${tBadge(m.test)} <b>${c}/${its.length}</b> 정답 · 사용 ${U.korDur(m.used)} / 제한 ${(m.limit ? U.korDur(m.limit) : '제한 없음')}</div>`;
+        return `<div class="mod">${tBadge(m.test)}${split ? ` 모듈 ${a.modules.slice(0, mi + 1).filter(x => x.test === m.test).length}` : ''} <b>${c}/${its.length}</b> 정답 · 사용 ${U.korDur(m.used)} / 제한 ${(m.limit ? U.korDur(m.limit) : '제한 없음')}</div>`;
       }).join('')}
         <div class="mod ${v.filter(x => x.type !== 'reload').length ? 'bad' : ''}">화면 이탈 <b>${v.filter(x => x.type !== 'reload').length}회</b>${v.length ? ` <span class="muted sm">(${v.map(x => VT[x.type] || x.type).join(', ')})</span>` : ''}</div>
       </div>

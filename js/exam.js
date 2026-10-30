@@ -35,8 +35,13 @@ const Exam = (() => {
     const rw = questions.filter(q => q.test !== 'MATH');
     const math = questions.filter(q => q.test === 'MATH');
     const modules = [];
-    if (rw.length) modules.push({ test: 'RW', qids: rw.map(q => q.id), limit: U.timeFor('RW', rw.length) });
-    if (math.length) modules.push({ test: 'MATH', qids: math.map(q => q.id), limit: U.timeFor('MATH', math.length) });
+    // 모의고사: 실제 SAT처럼 섹션마다 모듈 2개로 나눔 (R&W 27+27 · Math 22+22)
+    const add = (test, list, sec) => {
+      const parts = opt.mock && list.length > 1 ? [list.slice(0, Math.ceil(list.length / 2)), list.slice(Math.ceil(list.length / 2))] : [list];
+      parts.forEach((p, i) => modules.push({ test, qids: p.map(q => q.id), limit: U.timeFor(test, p.length), sec, mod: i + 1 }));
+    };
+    if (rw.length) add('RW', rw, 1);
+    if (math.length) add('MATH', math, rw.length ? 2 : 1);
     Q = {}; questions.forEach(q => (Q[q.id] = q));
     const now = Date.now();
     modules[0].startAt = now;
@@ -44,7 +49,7 @@ const Exam = (() => {
       date: opt.date || U.today(), name: opt.name || 'Student', startedAt: now,
       modules, mi: 0, qi: 0, review: false, phase: 'test', endAt: now + modules[0].limit * 1000,
       used: [], responses: {}, marked: {}, elim: {}, hl: {}, th: {}, spent: {}, violations: [], warned5: false,
-      timed: opt.timed !== false,
+      timed: opt.timed !== false, mock: opt.mock || undefined,
     };
     onFinish = opt.onFinish;
     onAsk = opt.onAsk || null;
@@ -149,7 +154,7 @@ const Exam = (() => {
     const attempt = {
       date: S.date, createdAt: S.startedAt, finishedAt: now,
       modules: S.modules.map((m, i) => ({ test: m.test, limit: timed() ? m.limit : 0, used: Math.round(S.used[i] ?? 0), count: m.qids.length })),
-      items, violations: S.violations,
+      items, violations: S.violations, mock: S.mock,
     };
     let aid;
     // 인터넷이 끊겨 있으면 결과를 이 기기에 임시 보관했다가 연결되면 자동으로 올림
@@ -232,8 +237,9 @@ const Exam = (() => {
   }
 
   /* ---------- 렌더링 ---------- */
+  const modTitle = (m, i) => `Section ${m.sec || i + 1}, Module ${m.mod || 1}: ${U.TEST_NAME[m.test]}`;
   function sectionTitle() {
-    return `Section ${S.mi + 1}, Module 1: ${U.TEST_NAME[cur().test]}`;
+    return modTitle(cur(), S.mi);
   }
 
   function img(blob, cls = '') {
@@ -495,7 +501,7 @@ const Exam = (() => {
       <h1>This module is complete</h1>
       <p>Your answers for <b>${U.TEST_NAME[cur().test]}</b> have been saved.</p>
       <div class="bb-revcard">
-        <p class="t-next">Up next: <b>Section ${S.mi + 2}, Module 1: ${U.TEST_NAME[nm.test]}</b></p>
+        <p class="t-next">Up next: <b>${modTitle(nm, S.mi + 1)}</b></p>
         <p class="t-next">${nm.qids.length} questions · ${timed() ? U.mmss(nm.limit) : 'No time limit'}</p>
         <p class="sub">Select <b>Continue</b> when you're ready.${timed() ? ' The timer starts immediately.' : ''}</p>
       </div>

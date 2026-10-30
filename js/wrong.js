@@ -288,5 +288,5 @@ const WrongNotes = (() => {
   async function notesFor(qids) { await loadMeta(); const o = {}; qids.forEach(q => { if (meta[q]) o[q] = meta[q]; }); return o; }
   function reset() { meta = null; }
 
-  return { init: c => (ctx = c), view, setCause, causeOf, noteOf, saveNote, focus, notesFor, TIPS, CAUSE_NAME, reset, CAUSES, slowLimit, MEMO_PH };
+  return { init: c => (ctx = c), view, preview, setCause, causeOf, noteOf, saveNote, focus, notesFor, TIPS, CAUSE_NAME, reset, CAUSES, slowLimit, MEMO_PH };
 })();

@@ -103,6 +103,7 @@ const Exam = (() => {
   let gateOpen = false;
   function showGate() {
     gateOpen = true;
+    if (Calc.el) Calc.el.style.display = 'none';
     let g = root.querySelector('.bb-gate');
     if (!g) { g = document.createElement('div'); g.className = 'bb-lock bb-gate'; root.appendChild(g); }
     g.innerHTML = `<div class="bb-lock-card">
@@ -111,7 +112,7 @@ const Exam = (() => {
       <button class="bb-btn" data-act="gate">전체화면으로 시작</button>
     </div>`;
   }
-  function hideGate() { gateOpen = false; root && root.querySelector('.bb-gate')?.remove(); }
+  function hideGate() { gateOpen = false; root && root.querySelector('.bb-gate')?.remove(); if (root && ui.calc) render(); }
 
   function unmount(keepSession) {
     clearInterval(timerId);
@@ -122,6 +123,7 @@ const Exam = (() => {
     else if (document.webkitFullscreenElement && document.webkitExitFullscreen) document.webkitExitFullscreen();
     root && root.remove();
     root = null;
+    Calc.destroy();
     document.body.classList.remove('exam-on');
     if (!keepSession) localStorage.removeItem(KEY);
   }
@@ -337,7 +339,6 @@ const Exam = (() => {
       </footer>
       ${ui.nav && !trans && !S.review ? navHTML() : ''}
       ${ui.dir && !trans ? directionsHTML() : ''}
-      ${ui.calc && isMath && !trans ? calcHTML() : ''}
       ${ui.ref && isMath && !trans ? refHTML() : ''}
       ${ui.modal ? modalHTML(ui.modal) : ''}
       ${S.paused ? `<div class="bb-pause" role="dialog" aria-label="일시정지">
@@ -359,7 +360,12 @@ const Exam = (() => {
     `;
     if (!trans) updateTimer(timerSecs());
     fitImages();
-    if (ui.calc && isMath && !trans) mountCalc();
+    Calc.sync({
+      show: ui.calc && isMath && !trans && !S.paused && !ui.modal && !gateOpen,
+      closeIcon: ICON.close,
+      onClose: () => { ui.calc = false; render(); },
+      onDrag: e => startDrag(e, 'calc'),
+    });
     setupDrag();
   }
 
@@ -525,13 +531,6 @@ const Exam = (() => {
     </div>`;
   }
 
-  function calcHTML() {
-    return `<div class="bb-float bb-calc" style="left:${ui.calcX ?? 24}px;top:${ui.calcY ?? 90}px">
-      <div class="bb-float-head" data-drag="calc"><span>Calculator</span><button class="bb-x" data-act="calc">${ICON.close}</button></div>
-      <div id="calc-host" class="bb-desmos"></div>
-    </div>`;
-  }
-
   function refHTML() {
     return `<div class="bb-float bb-ref" style="left:${ui.refX ?? 'auto'}px;top:${ui.refY ?? 90}px;${ui.refX == null ? 'right:24px;left:auto' : ''}">
       <div class="bb-float-head" data-drag="ref"><span>Reference</span><button class="bb-x" data-act="ref">${ICON.close}</button></div>
@@ -572,11 +571,6 @@ const Exam = (() => {
     setTimeout(() => t.remove(), 6000);
   }
 
-  /* ---------- 계산기 ---------- */
-  function mountCalc() {
-    const host = root.querySelector('#calc-host');
-    if (host) Calc.mount(host);
-  }
 
   /* ---------- 이벤트 ---------- */
   function closePops() { ui.nav = false; ui.more = false; }
@@ -814,13 +808,14 @@ const Exam = (() => {
     const panel = e.target.closest('.bb-float');
     const r = panel.getBoundingClientRect();
     const dx = e.clientX - r.left, dy = e.clientY - r.top;
+    panel.classList.add('dragging');
     const mv = ev => {
       const x = Math.max(0, Math.min(window.innerWidth - 80, ev.clientX - dx));
       const y = Math.max(0, Math.min(window.innerHeight - 40, ev.clientY - dy));
       panel.style.left = x + 'px'; panel.style.top = y + 'px'; panel.style.right = 'auto';
       ui[kind + 'X'] = x; ui[kind + 'Y'] = y;
     };
-    const up = () => { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); };
+    const up = () => { panel.classList.remove('dragging'); window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); };
     window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
   }
   function setupDrag() {}
@@ -876,7 +871,7 @@ const Exam = (() => {
 
   const H = {
     vis: () => { if (document.hidden) violation('tab-hidden'); },
-    blur: () => { setTimeout(() => { if (!document.hasFocus()) violation('window-blur'); }, 150); },
+    blur: () => { setTimeout(() => { if (!document.hasFocus() && !(document.activeElement && document.activeElement.tagName === 'IFRAME')) violation('window-blur'); }, 150); },
     fs: () => {
       if (isFs()) { if (gateOpen) hideGate(); return; }
       if (!gateOpen) violation('fullscreen-exit');

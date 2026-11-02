@@ -278,7 +278,7 @@ const Exam = (() => {
   // 텍스트 문제: 형광펜 칠한 상태(HTML)를 문제·부분별로 저장
   function qtext(qid, key, html, extra = '') {
     const saved = S.th && S.th[qid + '|' + key];
-    return `<div class="q-text q-${key} ${extra}" data-qid="${U.esc(qid)}" data-key="${key}">${saved != null ? saved : html || ''}</div>`;
+    return `<div class="q-text q-${key} ${extra}" data-qid="${U.esc(qid)}" data-key="${key}">${U.svg(saved != null ? saved : html || '')}</div>`;
   }
 
   function hlWrap(qid, blob) {
@@ -359,13 +359,13 @@ const Exam = (() => {
       </div>` : ''}
     `;
     if (!trans) updateTimer(timerSecs());
-    fitImages();
     Calc.sync({
       show: ui.calc && isMath && !trans && !S.paused && !ui.modal && !gateOpen,
       closeIcon: ICON.close,
       onClose: () => { ui.calc = false; render(); },
-      onDrag: e => startDrag(e, 'calc'),
+      main: root.querySelector('.bb-main'),
     });
+    fitImages();
     setupDrag();
   }
 

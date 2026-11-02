@@ -46,6 +46,9 @@ const DB = (() => {
 
 /* 공용 유틸 */
 const U = {
+  // College Board 그림(SVG)은 <path ...>를 닫지 않아 브라우저가 서로 겹쳐 넣고 첫 조각만 그림 → 스스로 닫히게 고침
+  svg: h => typeof h === 'string' && h.includes('<svg') ? h.replace(/<\/(path|line|circle|rect|polygon|polyline|ellipse)>/gi, '').replace(/<(path|line|circle|rect|polygon|polyline|ellipse)\b([^>]*?)\/?>/gi, '<$1$2/>') : h,
+  fixQ: q => q ? { ...q, stim: U.svg(q.stim), stem: U.svg(q.stem), rat: U.svg(q.rat), choices: Array.isArray(q.choices) ? q.choices.map(U.svg) : q.choices } : q,
   esc: s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])),
   today() {
     const d = new Date();
@@ -188,7 +191,11 @@ const Store = (() => {
   let bankP = null;
   function loadBank() {
     if (bankP) return bankP;
-    bankP = (async () => {
+    bankP = loadBankRaw().then(a => a.map(U.fixQ));
+    return bankP;
+  }
+  function loadBankRaw() {
+    return (async () => {
       try {
         let url = null;
         if (mode === 'google') {
@@ -211,7 +218,6 @@ const Store = (() => {
         return (j.items || []).map(q => ({ ...q, bank: true }));
       } catch (e) { console.warn('기본 문제를 불러오지 못했습니다', e); return []; }
     })();
-    return bankP;
   }
 
   // 기본 문제를 Google 계정에 나눠 저장 (Firestore 문서 1MB 제한 → 여러 조각)

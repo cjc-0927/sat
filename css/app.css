@@ -595,3 +595,4 @@ kbd { font: 11px ui-monospace, Menlo, monospace; border: 1px solid currentColor;
   .crop-side { width: auto; border-left: 0; border-top: 1px solid var(--line); flex: 1; }
   .crop-head { flex-wrap: wrap; }
 }
+.imp-keep { background: #fff7e0; border: 1px solid #f0d58a; border-radius: 8px; padding: 8px 12px; font-size: 13px; margin-bottom: 8px; }

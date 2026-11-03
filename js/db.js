@@ -46,6 +46,26 @@ const DB = (() => {
 
 /* 공용 유틸 */
 const U = {
+  // canvas → PNG. 크롬의 toBlob은 화면이 안 그려질 때(다른 탭 등) 1초씩 밀려서 큰 PDF가 수십 분 걸림
+  // → 별도 작업 스레드(Worker)에서 인코딩하면 밀리지 않음. 안 되는 브라우저는 원래 방식
+  async png(c) {
+    if (U._pngW !== false && c.width && c.height && typeof OffscreenCanvas !== 'undefined' && window.Worker) {
+      try {
+        if (!U._pngW) {
+          const code = "onmessage=async e=>{const{id,bm}=e.data;try{const o=new OffscreenCanvas(bm.width,bm.height);o.getContext('2d').drawImage(bm,0,0);bm.close();postMessage({id,b:await o.convertToBlob({type:'image/png'})})}catch(er){postMessage({id,err:1})}}";
+          U._pngW = new Worker(URL.createObjectURL(new Blob([code], { type: 'text/javascript' })));
+          U._pngP = {}; U._pngN = 0;
+          U._pngW.onmessage = e => { const f = U._pngP[e.data.id]; delete U._pngP[e.data.id]; f && f(e.data.b || null); };
+        }
+        const bm = await createImageBitmap(c);
+        const id = ++U._pngN;
+        const b = await new Promise(r => { U._pngP[id] = r; U._pngW.postMessage({ id, bm }, [bm]); });
+        if (b) return b;
+      } catch (e) {}
+      U._pngW = false;
+    }
+    return new Promise(r => c.toBlob(r, 'image/png'));
+  },
   // College Board 그림(SVG)은 <path ...>를 닫지 않아 브라우저가 서로 겹쳐 넣고 첫 조각만 그림 → 스스로 닫히게 고침
   svg: h => typeof h === 'string' && h.includes('<svg') ? h.replace(/<\/(path|line|circle|rect|polygon|polyline|ellipse)>/gi, '').replace(/<(path|line|circle|rect|polygon|polyline|ellipse)\b([^>]*?)\/?>/gi, '<$1$2/>') : h,
   fixQ: q => q ? { ...q, stim: U.svg(q.stim), stem: U.svg(q.stem), rat: U.svg(q.rat), choices: Array.isArray(q.choices) ? q.choices.map(U.svg) : q.choices } : q,
@@ -266,16 +286,22 @@ const Store = (() => {
     (q.choiceImgs || []).forEach((b, i) => b && list.push(['c' + i, b]));
     if (!list.length) return null;
     const bms = await Promise.all(list.map(([, b]) => createImageBitmap(b)));
-    const W = Math.max(...bms.map(b => b.width));
-    const H = bms.reduce((s, b) => s + b.height, 0);
+    // 올리는 용량을 절반 정도로: 75% 크기 + 색 단계를 줄여 PNG 압축이 잘 되게 (보여줄 때 원래 크기로 되돌림)
+    const sz = b => [Math.max(1, Math.round(b.width * SPRITE_SCALE)), Math.max(1, Math.round(b.height * SPRITE_SCALE))];
+    const W = Math.max(...bms.map(b => sz(b)[0]));
+    const H = bms.reduce((s, b) => s + sz(b)[1], 0);
     const c = document.createElement('canvas');
     c.width = W; c.height = H;
     const ctx = c.getContext('2d');
+    ctx.imageSmoothingQuality = 'high';
     ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
     const parts = {};
     let y = 0;
-    bms.forEach((b, i) => { ctx.drawImage(b, 0, y); parts[list[i][0]] = [0, y, b.width, b.height]; y += b.height; });
-    const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+    bms.forEach((b, i) => { const [w, h] = sz(b); ctx.drawImage(b, 0, y, w, h); parts[list[i][0]] = [0, y, w, h, b.width, b.height]; y += h; });
+    const img = ctx.getImageData(0, 0, W, H), d = img.data, st = 17; // 채널당 16단계
+    for (let i = 0; i < d.length; i += 4) { d[i] = Math.round(d[i] / st) * st; d[i + 1] = Math.round(d[i + 1] / st) * st; d[i + 2] = Math.round(d[i + 2] / st) * st; d[i + 3] = 255; }
+    ctx.putImageData(img, 0, 0);
+    const blob = await U.png(c);
     return { blob, parts };
   }
 
@@ -288,6 +314,7 @@ const Store = (() => {
 
   const blobToB64 = b => new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result.split(',')[1]); fr.readAsDataURL(b); });
   const b64ToBlob = s => { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return new Blob([u], { type: 'image/png' }); };
+  const SPRITE_SCALE = 0.75;
   const CHUNK = 700000; // Firestore 문서 1MB 제한 아래로 나눠 저장
 
   async function spriteBlob(q) {
@@ -308,11 +335,13 @@ const Store = (() => {
       hydrated.set(key, (async () => {
         const bm = await createImageBitmap(await spriteBlob(q));
         const out = {};
-        for (const [k, [x, y, w, h]] of Object.entries(q.parts || {})) {
+        for (const [k, [x, y, w, h, ow = w, oh = h]] of Object.entries(q.parts || {})) {
           const c = document.createElement('canvas');
-          c.width = w; c.height = h;
-          c.getContext('2d').drawImage(bm, x, y, w, h, 0, 0, w, h);
-          out[k] = await new Promise(r => c.toBlob(r, 'image/png'));
+          c.width = ow; c.height = oh;
+          const ctx = c.getContext('2d');
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(bm, x, y, w, h, 0, 0, ow, oh);
+          out[k] = await U.png(c);
         }
         return out;
       })().catch(e => { hydrated.delete(key); throw e; }));

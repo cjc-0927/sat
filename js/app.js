@@ -751,7 +751,8 @@ const App = (() => {
           <div class="imp-msg muted sm">${r.msg}</div>
         </div>`).join('');
       const done = !job.running && job.totalAdd ? `<div class="imp-done"><b>${job.totalAdd}문항을 추가했습니다.</b> <a class="btn primary" href="#bank">문제은행으로 가기</a></div>` : '';
-      log.innerHTML = done + rows;
+      const keep = job.running ? '<div class="imp-keep">⚠️ 끝날 때까지 <b>이 탭을 화면에 띄워 두세요.</b> 다른 탭이나 앱으로 가면 브라우저가 작업을 거의 멈춰서 몇 배 느려져요.</div>' : '';
+      log.innerHTML = keep + done + rows;
     }
     renderJobBadge();
   }
@@ -759,12 +760,13 @@ const App = (() => {
   function renderJobBadge() {
     const b = document.getElementById('jobBadge');
     if (!b) return;
-    if (!job.running) { b.hidden = true; return; }
+    if (!job.running) { b.hidden = true; document.title = 'SAT Practice Bank'; return; }
     let i = job.rows.findIndex(r => r.state === 'run');
     if (i < 0) i = Math.min(job.rows.length - 1, job.rows.filter(r => r.state === 'done' || r.state === 'fail').length);
     const cur = job.rows[i];
     b.hidden = false;
     b.textContent = `⬆ 업로드 중 ${i + 1}/${job.rows.length} · ${cur ? cur.pct : 0}%`;
+    document.title = `(${cur ? cur.pct : 0}%) SAT Practice Bank`;
     // 업로드 화면이 아닐 때는 화면 위에 진행 카드도 보여줌
     let card = document.getElementById('jobCard');
     const onImport = (location.hash || '').startsWith('#import');
@@ -833,9 +835,9 @@ const App = (() => {
         }
         let add = 0, dup = 0, merged = 0;
         const warn = [];
-        for (let qi = 0; qi < qs.length; qi++) {
-          const q = qs[qi];
-          set(`저장 중 (${qi + 1}/${qs.length})`, 50 + ((qi + 1) / qs.length) * 50);
+        // 한 문제씩 기다리면 너무 느려서 여러 문제를 동시에 저장
+        let next = 0, saved = 0;
+        const saveOne = async q => {
           const old = qmap[q.id];
           if (old && !overwrite) {
             // 같은 문제의 "답" PDF를 나중에 올린 경우: 정답·해설만 채워 넣음
@@ -847,14 +849,23 @@ const App = (() => {
               await Store.put('questions', old); merged++;
               liveRefresh();
             } else dup++;
-            continue;
+            return;
           }
           await Store.put('questions', q);
           if (!qmap[q.id]) questions.push(q); else questions[questions.indexOf(qmap[q.id])] = q;
           qmap[q.id] = q; add++;
           liveRefresh();
           if (!q.skill || !q.answer || (!q.difficulty && !q.custom)) warn.push(q.id);
-        }
+        };
+        const worker = async () => {
+          while (next < qs.length) {
+            const q = qs[next++];
+            await saveOne(q);
+            saved++;
+            set(`저장 중 (${saved}/${qs.length})`, 50 + (saved / qs.length) * 50);
+          }
+        };
+        await Promise.all(Array.from({ length: 6 }, worker));
         job.totalAdd += add;
         const by = t => qs.filter(q => q.test === t).length;
         row.msg = `<span class="ok">✓ ${qs.length}문항 인식</span> · 새로 추가 ${add}${merged ? ` · 정답 추가 ${merged}` : ''} · 중복 건너뜀 ${dup} · R&amp;W ${by('RW')} / Math ${by('MATH')}` +

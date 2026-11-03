@@ -209,7 +209,7 @@ const Parser = (() => {
         ctx.drawImage(s.c, x1, sy, Math.min(W, s.c.width - x1), sh, 0, yy, Math.min(W, s.c.width - x1), sh);
         yy += s.y2 - s.y + PAD * 2 + GAP;
       }
-      return await new Promise(r => out.toBlob(r, 'image/png'));
+      return await U.png(out);
     }
 
     // "ID: xxxx" 남색 박스의 아래쪽 끝(y) — 박스 영역의 진한 남색 줄이 끝나는 곳

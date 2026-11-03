@@ -251,7 +251,7 @@ const CropTool = (() => {
           const out1 = document.createElement('canvas'); out1.width = W; out1.height = H;
           const ctx = out1.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
           let yy = 0; parts.forEach(p => { ctx.drawImage(p.c, p.x, p.y, p.w, p.h, 0, yy, p.w, p.h); yy += p.h + 16; });
-          const stemImg = await new Promise(r => out1.toBlob(r, 'image/png'));
+          const stemImg = await U.png(out1);
           const test = effTest(q) || 'RW';
           const isMcq = q.type === 'mcq';
           out.push({

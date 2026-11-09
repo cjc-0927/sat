@@ -23,7 +23,8 @@ const WrongNotes = (() => {
   const DAY = 86400000;
   const TIPS = { concept: '해당 개념을 먼저 정리하고 같은 유형을 몇 문제 더 풀어보세요.', mistake: '문제를 끝까지 읽고, 답을 고르기 전에 조건을 한 번 더 확인하는 습관을 들이세요.', time: '모르는 문제는 표시하고 넘어갔다가 마지막에 돌아오는 연습을 해보세요.', strategy: '해설의 풀이 방식을 따라 같은 유형을 다시 풀어보며 접근법을 익히세요.' };
   const MEMO_PH = '왜 그 답을 골랐는지 · 정답의 근거 · 헷갈린 단어/개념';
-  const slowLimit = test => Math.round(U.RATE[test === 'MATH' ? 'MATH' : 'RW'] * 1.5); // 실제 SAT 문항당 시간의 1.5배
+  // 실제 SAT 문항당 시간의 1.5배 (영어만. 수학은 원래 오래 걸리는 문제가 있어서 제외)
+  const slowLimit = test => test === 'MATH' ? Infinity : Math.round(U.RATE.RW * 1.5);
   const esc = s => U.esc(s);
 
   async function loadMeta() {

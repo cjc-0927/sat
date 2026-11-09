@@ -415,7 +415,12 @@ const App = (() => {
     </div>`;
   }
 
-  function refreshBank() { const y = document.querySelector('.table-wrap')?.scrollTop; bankView(); if (y) document.querySelector('.table-wrap').scrollTop = y; }
+  function refreshBank() {
+    const keep = ['.table-wrap', '.filters'].map(k => [k, document.querySelector(k)?.scrollTop || 0]), wy = window.scrollY;
+    bankView();
+    keep.forEach(([k, y]) => { const e = document.querySelector(k); if (e && y) e.scrollTop = y; });
+    window.scrollTo(0, wy);
+  }
 
   function bindBank() {
     const v = view();

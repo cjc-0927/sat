@@ -67,7 +67,7 @@ const U = {
     return new Promise(r => c.toBlob(r, 'image/png'));
   },
   // College Board 그림(SVG)은 <path ...>를 닫지 않아 브라우저가 서로 겹쳐 넣고 첫 조각만 그림 → 스스로 닫히게 고침
-  svg: h => typeof h === 'string' && h.includes('<svg') ? h.replace(/<\/(path|line|circle|rect|polygon|polyline|ellipse)>/gi, '').replace(/<(path|line|circle|rect|polygon|polyline|ellipse)\b([^>]*?)\/?>/gi, '<$1$2/>') : h,
+  svg: h => typeof h === 'string' && h.includes('<svg') ? h.replace(/<\/(path|line|circle|rect|polygon|polyline|ellipse|use|stop|image)>/gi, '').replace(/<(path|line|circle|rect|polygon|polyline|ellipse|use|stop|image)\b([^>]*?)\/?>/gi, '<$1$2/>') : h,
   fixQ: q => q ? { ...q, stim: U.svg(q.stim), stem: U.svg(q.stem), rat: U.svg(q.rat), choices: Array.isArray(q.choices) ? q.choices.map(U.svg) : q.choices } : q,
   esc: s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])),
   today() {
